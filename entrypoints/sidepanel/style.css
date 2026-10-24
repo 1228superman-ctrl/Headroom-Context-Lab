@@ -1,0 +1,1150 @@
+﻿:root {
+  --bg: #ffffff;
+  --bg-card: #f8fafc;
+  --fg: #0f172a;
+  --fg-muted: #64748b;
+  --border: #e2e8f0;
+  --green: #22c55e;
+  --yellow: #eab308;
+  --red: #ef4444;
+  --idle: #94a3b8;
+  --accent: #6366f1;
+  --radius: 12px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b1020;
+    --bg-card: #131a2e;
+    --fg: #e6ebf5;
+    --fg-muted: #94a3b8;
+    --border: #232b45;
+    --accent: #818cf8;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
+    sans-serif;
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+#app {
+  padding: 14px;
+}
+
+/* Views — only one is visible at a time (main ↔ settings). */
+.hd-view {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+/* `display: flex` above would override the [hidden] attribute, so re-assert. */
+.hd-view[hidden] {
+  display: none;
+}
+
+/* Header */
+.hd-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.hd-header--start {
+  justify-content: flex-start;
+  gap: 10px;
+}
+.hd-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.hd-logo {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+}
+.hd-logo svg {
+  width: 32px;
+  height: 32px;
+  display: block;
+}
+.hd-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+.hd-subtitle {
+  margin: 0;
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+.hd-icon-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--fg-muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.hd-icon-btn:hover {
+  color: var(--fg);
+}
+
+/* Cards */
+.hd-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+}
+
+.hd-model-name {
+  font-weight: 600;
+  font-size: 14px;
+}
+.hd-model-meta {
+  margin-top: 6px;
+}
+/* Conversation identity block: title (human label) + dialogueId (machine id).
+   Builds "this gauge = this conversation". Title truncates with ellipsis so a
+   long title can't blow the card; the id wraps (full id, break-all so a UUID
+   fits the narrow panel) and sits muted below. */
+.hd-dialogue-identity {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+.hd-dialogue-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg);
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hd-dialogue-id {
+  margin-top: 4px;
+  font-size: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--fg-muted);
+  word-break: break-all;
+  line-height: 1.3;
+  user-select: all; /* let the user copy the id to verify against the URL */
+}
+.hd-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg-muted);
+  font-size: 11px;
+}
+
+/* Usage */
+.hd-usage-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.hd-percent {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.hd-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+.hd-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--idle);
+}
+.hd-dot[data-level="green"] {
+  background: var(--green);
+}
+.hd-dot[data-level="yellow"] {
+  background: var(--yellow);
+}
+.hd-dot[data-level="red"] {
+  background: var(--red);
+}
+
+.hd-bar {
+  height: 10px;
+  border-radius: 999px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.hd-bar-fill {
+  height: 100%;
+  width: 0%;
+  max-width: 100%;
+  border-radius: 999px;
+  background: var(--idle);
+  transition:
+    width 0.3s ease,
+    background 0.3s ease;
+}
+.hd-bar-fill[data-level="green"] {
+  background: var(--green);
+}
+.hd-bar-fill[data-level="yellow"] {
+  background: var(--yellow);
+}
+.hd-bar-fill[data-level="red"] {
+  background: var(--red);
+}
+
+.hd-usage-bottom {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+.hd-usage-bottom #token-used {
+  color: var(--fg);
+  font-weight: 600;
+}
+.hd-sep {
+  margin: 0 4px;
+}
+.hd-unit {
+  margin-left: 4px;
+}
+
+/* Stats */
+.hd-stats {
+  display: flex;
+  gap: 10px;
+}
+.hd-stat {
+  flex: 1;
+}
+.hd-stat-label {
+  font-size: 11px;
+  color: var(--fg-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.hd-stat-value {
+  margin-top: 2px;
+  font-size: 18px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Settings */
+.hd-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.hd-settings-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--fg-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.hd-settings-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+}
+.hd-settings-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--fg);
+  white-space: nowrap;
+}
+.hd-platform-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  border-radius: 3px;
+  object-fit: contain;
+}
+.hd-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+.hd-swatch--yellow {
+  background: var(--yellow);
+}
+.hd-swatch--red {
+  background: var(--red);
+}
+.hd-swatch--green {
+  background: var(--green);
+}
+/* Threshold control: one bar, two thumbs over a 3-zone gradient.
+   --thr-yellow / --thr-red (set inline as %) drive the gradient stops so the
+   green|yellow|red bands line up exactly under each thumb. */
+.hd-threshold-bar {
+  position: relative;
+  height: 24px;
+  display: flex;
+  align-items: center;
+}
+.hd-threshold-bar::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: linear-gradient(
+    to right,
+    var(--green) 0 var(--thr-yellow, 50%),
+    var(--yellow) var(--thr-yellow, 50%) var(--thr-red, 70%),
+    var(--red) var(--thr-red, 70%) 100%
+  );
+}
+/* Two native ranges overlaid on the bar. Track is transparent & ignores
+   pointer events; only each thumb catches drags, so the two inputs don't
+   block one another. Native gives keyboard/touch/a11y for free. */
+.hd-range-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  background: none;
+  -webkit-appearance: none;
+  appearance: none;
+  pointer-events: none;
+}
+.hd-range-overlay::-webkit-slider-runnable-track {
+  height: 24px;
+  background: none;
+  border: none;
+}
+.hd-range-overlay::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  pointer-events: auto;
+  width: 16px;
+  height: 16px;
+  margin-top: 4px; /* (24 - 16) / 2 → centers the thumb on the 10px track */
+  border-radius: 50%;
+  background: var(--bg);
+  border: 2px solid var(--accent);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  cursor: grab;
+}
+.hd-range-overlay:active::-webkit-slider-thumb {
+  cursor: grabbing;
+}
+.hd-range-overlay::-moz-range-track {
+  height: 24px;
+  background: none;
+  border: none;
+}
+.hd-range-overlay::-moz-range-thumb {
+  pointer-events: auto;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--bg);
+  border: 2px solid var(--accent);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  cursor: grab;
+}
+/* Legend: swatch + numeric %. Tabular numbers + fixed swatch → width is
+   identical across languages (this is what made the old sliders resize). */
+.hd-threshold-legend {
+  display: flex;
+  gap: 16px;
+  font-size: 12px;
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+.hd-threshold-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+/* What each color zone means (static help text — not the live values). */
+.hd-threshold-zones {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.hd-zone-meaning {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+.hd-settings-reset {
+  align-self: flex-start;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--fg-muted);
+  font-size: 11px;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.hd-settings-reset:hover {
+  color: var(--fg);
+}
+.hd-settings-row--select {
+  grid-template-columns: auto 1fr;
+}
+.hd-select {
+  width: 100%;
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 12px;
+  cursor: pointer;
+}
+.hd-divider {
+  height: 1px;
+  background: var(--border);
+}
+
+/* Settings field rows (Upstash URL/Token/test): label + control, 2 cols. */
+.hd-settings-row--field {
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+}
+/* Upstash field rows share one grid so label columns auto-size to the widest
+   label — URL and Token inputs align without a hardcoded width. */
+.hd-upstash-fields {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+}
+.hd-upstash-fields > .hd-settings-row--field {
+  display: contents;
+}
+/* Upstash action row (test + clear side by side). */
+.hd-upstash-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.hd-btn--ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--fg-muted);
+}
+.hd-btn--ghost:hover {
+  color: var(--fg);
+  border-color: transparent;
+}
+
+/* Text inputs mirror the existing select styling for consistency. */
+.hd-input {
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 12px;
+  font-family: inherit;
+}
+.hd-input::placeholder {
+  color: var(--fg-muted);
+  opacity: 0.7;
+}
+.hd-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+.hd-input[data-invalid] {
+  border-color: var(--red);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--red) 20%, transparent);
+}
+
+/* Token field: input + show/hide toggle on the right. */
+.hd-token-field {
+  position: relative;
+  display: flex;
+}
+.hd-token-field .hd-input {
+  padding-right: 32px;
+}
+
+/* Per-platform context-limit overrides: compact, right-aligned number inputs. */
+.hd-context-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.hd-context-list .hd-settings-row--field {
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+}
+.hd-context-list .hd-input {
+  width: 5.5rem;
+  text-align: right;
+}
+.hd-input-field {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+.hd-input-err {
+  font-size: 10px;
+  color: var(--red);
+  white-space: nowrap;
+}
+.hd-context-unit {
+  font-size: 10px;
+  color: var(--fg-muted);
+  white-space: nowrap;
+}
+
+/* Conversation identity + per-round breakdown, and panel scroll. */
+html,
+body {
+  height: 100%;
+}
+#app {
+  height: 100%;
+  overflow-y: auto;
+}
+.hd-rounds {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.hd-rounds-head {
+  font-size: 11px;
+  color: var(--fg-muted);
+  letter-spacing: 0.02em;
+}
+/* Rounds table — browser table-layout:auto handles column sizing organically:
+   the widest of header + data sets each column width, no wasted space. */
+.hd-rounds-table {
+  width: 100%;
+  table-layout: auto;
+  border-collapse: collapse;
+}
+.hd-rounds-table th {
+  font-size: 10px;
+  color: var(--fg-muted);
+  letter-spacing: 0.02em;
+  font-weight: 400;
+  text-align: left;
+  padding: 0 0 4px;
+  border-bottom: 1px solid var(--border);
+}
+/* Override the generic th left-align for the right-aligned Total column. */
+th.hd-round-cum {
+  text-align: right;
+}
+.hd-rounds-table td {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  padding: 1.5px 0;
+  vertical-align: baseline;
+}
+.hd-round-n {
+  color: var(--fg-muted);
+}
+.hd-round-in {
+  color: var(--accent);
+  text-align: left;
+}
+.hd-round-tool {
+  color: var(--warn, #b58900);
+  text-align: left;
+}
+.hd-round-out {
+  color: var(--fg);
+  text-align: left;
+}
+.hd-round-cum {
+  color: var(--fg);
+  font-weight: 600;
+  text-align: right;
+}
+.hd-icon-btn--toggle {
+  position: absolute;
+  top: 50%;
+  right: 2px;
+  transform: translateY(-50%);
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  cursor: pointer;
+}
+.hd-icon-btn--toggle:hover {
+  color: var(--fg);
+}
+.hd-icon-btn--toggle svg {
+  width: 15px;
+  height: 15px;
+  display: block;
+}
+
+/* Buttons. */
+.hd-btn {
+  padding: 7px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--fg);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    opacity 0.15s ease;
+}
+.hd-btn:hover {
+  border-color: var(--accent);
+}
+.hd-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+.hd-btn--secondary {
+  background: var(--bg);
+}
+.hd-btn--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.hd-btn--primary:hover {
+  filter: brightness(1.08);
+  border-color: var(--accent);
+}
+/* Saved feedback: button turns green then fades back. */
+.hd-btn--saved {
+  background: var(--green) !important;
+  border-color: var(--green) !important;
+}
+.hd-btn--block {
+  width: 100%;
+}
+/* Save button has invalid inputs — persistent red pulse. */
+.hd-btn--has-errors {
+  border-color: var(--red) !important;
+  animation: hd-error-pulse 1.5s ease-in-out infinite;
+}
+/* One-shot intense flash when save is clicked while inputs are invalid. */
+.hd-btn--error-flash {
+  animation: hd-error-flash 0.6s ease-out;
+  border-color: var(--red) !important;
+}
+@keyframes hd-error-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--red) 35%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--red) 0%, transparent);
+  }
+}
+@keyframes hd-error-flash {
+  0% {
+    background: var(--red);
+    color: #fff;
+  }
+  100% {
+    background: var(--accent);
+    color: #fff;
+  }
+}
+
+/* Test-connection result text. */
+.hd-upstash-status {
+  font-size: 11px;
+  color: var(--fg-muted);
+  min-height: 1em;
+}
+.hd-upstash-status[data-state="ok"] {
+  color: var(--green);
+  font-weight: 600;
+}
+.hd-upstash-status[data-state="err"] {
+  color: var(--red);
+  font-weight: 600;
+}
+.hd-upstash-status[data-state="busy"] {
+  color: var(--fg-muted);
+}
+
+/* Small helper text under a setting. */
+.hd-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--fg-muted);
+}
+
+/* Footnote variant — one size smaller than .hd-hint. */
+.hd-hint--sm {
+  font-size: 10px;
+}
+
+/* ---- Advanced Settings (spec 004 — token coefficients) ---- */
+
+.hd-advanced {
+  margin: 0;
+}
+
+.hd-advanced-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+  cursor: pointer;
+  list-style: none; /* hide default disclosure triangle in some browsers */
+}
+
+.hd-advanced-toggle::-webkit-details-marker {
+  display: none;
+}
+
+.hd-advanced-toggle::before {
+  content: "›";
+  display: inline-block;
+  width: 12px;
+  font-size: 16px;
+  font-weight: 400;
+  transition: transform 0.15s;
+  color: var(--fg-muted);
+}
+
+.hd-advanced[open] > .hd-advanced-toggle::before {
+  transform: rotate(90deg);
+}
+
+.hd-advanced-body {
+  padding: 4px 0 8px;
+}
+
+.hd-platform-coeff {
+  margin-top: 8px;
+  padding: 0;
+}
+
+.hd-platform-coeff > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--fg-muted);
+  cursor: pointer;
+  list-style: none;
+}
+
+.hd-platform-coeff > summary::-webkit-details-marker {
+  display: none;
+}
+
+.hd-platform-coeff > summary::before {
+  content: "›";
+  display: inline-block;
+  width: 10px;
+  margin-right: 4px;
+  font-size: 14px;
+  transition: transform 0.15s;
+}
+
+.hd-platform-coeff[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.hd-coeff-desc {
+  margin: 0 0 8px;
+  font-size: 11px;
+  color: var(--fg-muted);
+  line-height: 1.45;
+}
+
+.hd-coeff-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px 0 8px 14px;
+}
+
+.hd-coeff-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hd-coeff-field label {
+  min-width: 48px;
+  font-size: 11px;
+  color: var(--fg);
+}
+
+.hd-coeff-field input[type="number"] {
+  width: 56px;
+  padding: 2px 4px;
+  font-size: 12px;
+  text-align: center;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.hd-coeff-field input[type="number"]:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.hd-coeff-unit {
+  font-size: 10px;
+  color: var(--fg-muted);
+  white-space: nowrap;
+}
+
+.hd-coeff-hint {
+  display: block;
+  margin: 6px 0 4px;
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
+.hd-coeff-hint[hidden] {
+  display: none;
+}
+
+.hd-coeff-row-end {
+  display: flex;
+  justify-content: flex-start;
+  padding-top: 4px;
+}
+
+.hd-coeff-reset {
+  padding: 2px 8px;
+  font-size: 11px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-card);
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+
+.hd-coeff-reset:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ---- Info sections (Platform Reference + About) ---- */
+
+.hd-info {
+  margin: 0;
+}
+
+.hd-info-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+  cursor: pointer;
+  list-style: none;
+}
+
+.hd-info-toggle::-webkit-details-marker {
+  display: none;
+}
+
+.hd-info-toggle::before {
+  content: "›";
+  display: inline-block;
+  width: 12px;
+  font-size: 16px;
+  font-weight: 400;
+  transition: transform 0.15s;
+  color: var(--fg-muted);
+}
+
+.hd-info[open] > .hd-info-toggle::before {
+  transform: rotate(90deg);
+}
+
+.hd-info-body {
+  padding: 4px 0 12px;
+}
+
+.hd-info-subtitle {
+  margin: 8px 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.hd-platform-ref-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.hd-platform-ref-card {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+}
+
+.hd-ref-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.hd-ref-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.hd-ref-dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 10px;
+  margin: 0;
+  font-size: 11px;
+}
+
+.hd-ref-dl dt {
+  color: var(--fg-muted);
+  white-space: nowrap;
+}
+
+.hd-ref-dl dt::after {
+  content: ":";
+}
+
+.hd-ref-dl dd {
+  margin: 0;
+  color: var(--fg);
+}
+
+.hd-ref-note {
+  grid-column: 1 / -1;
+  margin: 4px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--fg-muted);
+}
+
+.hd-about-name {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.hd-link {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.hd-link:hover {
+  opacity: 0.8;
+}
+
+/* ChatGPT transcript estimates are not the model's effective context window. */
+.hd-history-label {
+  margin-bottom: 4px;
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+.hd-history-breakdown .hd-rounds-head {
+  margin-bottom: 7px;
+}
+.hd-history-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 0;
+  font-size: 12px;
+}
+.hd-history-row strong {
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+}
+.hd-history-note {
+  margin-top: 7px;
+}
+[hidden] {
+  display: none !important;
+}
+
+/* Local ChatGPT handover draft: editable preview only. */
+.hd-handover .hd-rounds-head {
+  margin-bottom: 8px;
+}
+.hd-handover-button {
+  display: inline-block;
+  padding: 8px 10px;
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+  color: var(--fg);
+  cursor: pointer;
+  font-size: 12px;
+}
+.hd-handover-button:hover:not(:disabled) {
+  filter: brightness(0.95);
+}
+.hd-handover-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.hd-handover-secondary {
+  opacity: 0.8;
+}
+.hd-handover-status {
+  margin-top: 8px;
+  overflow-wrap: anywhere;
+}
+.hd-handover-label {
+  display: block;
+  margin: 10px 0 6px;
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+.hd-handover-text {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 220px;
+  padding: 10px;
+  resize: vertical;
+  background: var(--bg-card);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font:
+    12px/1.5 ui-monospace,
+    SFMono-Regular,
+    Consolas,
+    monospace;
+}
+.hd-handover-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Local companion connection controls, isolated from the original settings. */
+.hd-remote-config {
+  margin-top: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+.hd-handover-input,
+.hd-handover-select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-card);
+  color: var(--fg);
+  font-size: 12px;
+}
+#handover-remote-status {
+  margin-top: 8px;
+  overflow-wrap: anywhere;
+}
+
+/* Manual stats refresh: always visible immediately above the usage card. */
+.hd-refresh-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 8px 0;
+}
+.hd-refresh-controls[hidden] {
+  display: none;
+}
+.hd-refresh-controls #stats-refresh {
+  margin: 0;
+  flex-shrink: 0;
+}
+.hd-refresh-controls #stats-refresh:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+#stats-refresh-status {
+  flex: 1;
+  min-width: 130px;
+}
+
+/* Keep automatic summarization feedback visible beside the send button. */
+.hd-handover-send-status {
+  margin: 7px 0 4px;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+  font-size: 12px;
+}
+.hd-handover-send-status[hidden] {
+  display: none;
+}

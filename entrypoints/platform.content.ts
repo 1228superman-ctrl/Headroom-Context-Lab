@@ -1,0 +1,477 @@
+﻿import type {
+  ConversationListMessage,
+  HeadroomMessage,
+  HistoryParsedMessage,
+} from "../utils/messages";
+import { ADAPTERS } from "../adapters";
+import { answerStreamSignature } from "../utils/dom-signature";
+import {
+  historySettled,
+  SETTLE_RETRY_DELAYS_MS,
+} from "../utils/history-settle";
+import { adapterForHost } from "../utils/match-host";
+import { createHandoverDraft } from "../utils/handover-draft";
+import { createAiHandoverPrompt } from "../utils/ai-handover-prompt";
+import { fetchChatGptHandoverHistory } from "../adapters/chatgpt";
+import { visibleChatGptRounds } from "../utils/handover-recovery";
+import type { HandoverDraftResponse } from "../utils/messages";
+
+/**
+ * The ONE content script for every supported platform. WXT injects it on any
+ * adapter's matchPattern; it finds its adapter by hostname, then fetches the
+ * conversation's full history (adapter.fetchHistory — the platform's history
+ * API, the SOLE authority for round identity via stable `message_id`) and ships
+ * it as HISTORY_PARSED. Three triggers:
+ *   - PAGE_READY (open / reload),
+ *   - SPA conversation switch (URL-change poll),
+ *   - REFRESH_HISTORY (the background detected the SSE completion stream closed
+ *     = the model finished this round; the new round is already in history).
+ *
+ * It reads NOTHING from the DOM for round identity — DeepSeek's virtual list
+ * keeps only visible messages in the DOM, so the DOM count is unreliable. The
+ * history API returns every message regardless of the virtual list.
+ */
+export default defineContentScript({
+  matches: ADAPTERS.map((a) => a.matchPattern),
+  main(ctx) {
+    const adapter = adapterForHost(location.hostname);
+    if (!adapter) return;
+
+    const TAG = `[Headroom|${adapter.platformId}]`;
+    const log = (...args: unknown[]) => {
+      if (import.meta.env.DEV) console.log(TAG, ...args);
+    };
+
+    log(
+      "content script started, host=",
+      location.hostname,
+      "url=",
+      location.href,
+    );
+
+    const send = (msg: HeadroomMessage): void => {
+      try {
+        log("send →", msg.type);
+        void browser.runtime.sendMessage(msg).catch(() => {});
+      } catch {
+        // Context invalidated — ctx.setInterval will stop the poll shortly.
+      }
+    };
+
+    const sendPageReady = (): void =>
+      send({
+        type: "PAGE_READY",
+        platformId: adapter.platformId,
+        url: location.href,
+        dialogueTitle: adapter.dialogueTitleFromDoc?.(document) ?? null,
+      });
+
+    // Fetch the conversation's full history (text + message_id-ordered rounds)
+    // and ship it. No-op when the adapter has no fetchHistory or the URL has no
+    // dialogue id (e.g. the home page). The background REPLACES the record with
+    // this authoritative view.
+    //
+    // When provisional=true (set only by the DOM poll detector during streaming
+    // — Gemini is the sole needsDomPollDetection platform), the background
+    // broadcasts locally and stops: no cloud read/write. The final settled ship
+    // (non-provisional) writes the cloud in one GET+SET pair — exactly the
+    // design baseline regardless of answer length. Other platforms always ship
+    // non-provisional (provisional defaults to false).
+    //
+    // Serialization: the DOM poll, SPA-switch, and REFRESH_HISTORY paths can
+    // all trigger fetchAndShipHistory in quick succession (rapid tab-through,
+    // streaming) — only one in-flight fetch at a time. A call that arrives
+    // while a fetch is in flight is NOT dropped: it sets `rerunQueued`, and
+    // the finishing fetch re-runs it in its finally (re-reading location.href,
+    // so the re-run targets the LATEST conversation). Without the re-run, a
+    // rapid switch landing mid-fetch would silently skip the new conversation
+    // until the next trigger — the gauge would sit on the cached/zero value.
+    // The queued call's `provisional` flag is carried through: a provisional
+    // (Gemini streaming) call queued behind a non-provisional fetch must not
+    // degrade into a mid-stream cloud write — and vice versa. The LATEST
+    // queued call's flag is the current truth (OVERWRITE, not OR): Gemini's
+    // 2s settle timer re-arms on every DOM change, so the final
+    // non-provisional call always lands after the last provisional one — OR
+    // would swallow it and the round would never reach Upstash.
+    let fetchInProgress = false;
+    let rerunQueued = false;
+    let rerunProvisional = false;
+    const fetchAndShipHistory = async (provisional = false): Promise<void> => {
+      if (fetchInProgress) {
+        rerunQueued = true;
+        rerunProvisional = provisional;
+        log("fetchAndShipHistory QUEUED — another fetch is in flight");
+        return;
+      }
+      if (!adapter.fetchHistory) {
+        log("fetchAndShipHistory SKIP — no fetchHistory on adapter");
+        return;
+      }
+      const dialogueId = adapter.dialogueIdFromUrl?.(location.href) ?? null;
+      if (!dialogueId) {
+        log(
+          "fetchAndShipHistory SKIP — no dialogueId in URL href=",
+          location.href,
+        );
+        return;
+      }
+      fetchInProgress = true;
+      log("fetchAndShipHistory START dialogueId=", dialogueId);
+      const t0 = performance.now();
+      try {
+        let rounds = await adapter.fetchHistory(dialogueId);
+        // Eventually-consistent history store (adapter-declared — Doubao):
+        // the newest round's answer may not be persisted yet. Re-fetch with
+        // bounded backoff instead of shipping a 0-output-token round. Runs
+        // inside the fetchInProgress guard, so concurrent triggers stay out.
+        if (adapter.historyNeedsSettleRetry) {
+          for (const delay of SETTLE_RETRY_DELAYS_MS) {
+            if (historySettled(rounds)) break;
+            log(
+              `history unsettled (newest round has empty answer) — retrying in ${delay}ms`,
+            );
+            await new Promise((r) => setTimeout(r, delay));
+            const retry = await adapter.fetchHistory(dialogueId);
+            // A retry that errored to [] must not clobber the earlier result.
+            if (retry.length > 0) rounds = retry;
+          }
+        }
+        const elapsed = (performance.now() - t0).toFixed(0);
+        // Stale-result guard: `dialogueId` was captured at fetch START, but the
+        // send below reads location.href at FINISH. If the user switched
+        // conversations while this fetch was in flight, shipping would write
+        // the OLD conversation's rounds into the NEW one's record — and the
+        // union-merge's cloud-only retention would keep them there forever
+        // (phantom rounds inflating the new conversation's totals). Discard
+        // instead; the switch's own fetch replaces this result.
+        if (adapter.dialogueIdFromUrl?.(location.href) !== dialogueId) {
+          log(
+            `fetchAndShipHistory DISCARD — dialogueId changed during fetch (${elapsed}ms): fetched ${dialogueId}, now ${adapter.dialogueIdFromUrl?.(location.href)}`,
+          );
+          return;
+        }
+        if (rounds.length === 0) {
+          log(
+            `fetchAndShipHistory DONE 0 rounds (${elapsed}ms) → NOT sending HISTORY_PARSED`,
+          );
+          return;
+        }
+        log(
+          `fetchAndShipHistory DONE ${rounds.length} rounds (${elapsed}ms) → sending HISTORY_PARSED${provisional ? " (provisional)" : ""}`,
+        );
+        send({
+          type: "HISTORY_PARSED",
+          platformId: adapter.platformId,
+          url: location.href,
+          rounds,
+          // Re-scrape the title on every history ship — cheap, and catches a
+          // rename (the SPA may have updated the tab title since PAGE_READY).
+          dialogueTitle: adapter.dialogueTitleFromDoc?.(document) ?? null,
+          ...(provisional ? { provisional: true as const } : {}),
+        } satisfies HistoryParsedMessage);
+      } catch (err) {
+        log("fetchAndShipHistory ERROR:", err);
+        // fetch failed — the next trigger (open / switch / round-complete) re-fetches
+      } finally {
+        fetchInProgress = false;
+        if (rerunQueued) {
+          rerunQueued = false;
+          const p = rerunProvisional;
+          rerunProvisional = false;
+          log("fetchAndShipHistory RERUN — a newer conversation is waiting");
+          void fetchAndShipHistory(p);
+        }
+      }
+    };
+
+    // On the platform HOME page (no dialogue id), fetch the conversation
+    // list and ship it for zombie cleanup (spec 003). When force=true
+    // (alarm-triggered FETCH_CONVERSATION_LIST), skip the dialogueId gate
+    // — the alarm needs the list regardless of which page the user is on.
+    //
+    // 30 s throttle on non-forced calls prevents hammering the platform API
+    // during rapid SPA toggling between home ↔ conversation.  force=true
+    // (alarm, every 60 min) and first-ever call are never throttled.
+    let lastFetchConvListTs = 0;
+    const FETCH_CONV_LIST_THROTTLE_MS = 30_000;
+    const fetchAndShipConversationList = async (
+      opts: { force?: boolean } = {},
+    ): Promise<void> => {
+      if (!adapter.fetchConversationList) return;
+      if (!opts.force) {
+        const dialogueId = adapter.dialogueIdFromUrl?.(location.href) ?? null;
+        if (dialogueId) return; // a conversation is open, not the home page
+        const now = Date.now();
+        if (now - lastFetchConvListTs < FETCH_CONV_LIST_THROTTLE_MS) return;
+        lastFetchConvListTs = now;
+      }
+      try {
+        const ids = await adapter.fetchConversationList();
+        if (ids.length === 0) return;
+        send({
+          type: "CONVERSATION_LIST",
+          platformId: adapter.platformId,
+          url: location.href,
+          ids,
+        } satisfies ConversationListMessage);
+      } catch (e) {
+        console.warn("[Headroom] fetchConversationList failed:", e);
+      }
+    };
+
+    // Background asks us to re-fetch history when the SSE completion stream
+    // closes (a round finished). The new round is already in history by then.
+    // GET_TITLE: lightweight query — respond with the current dialogue title
+    // so tab-switch shows the right title instantly (no polling delay).
+    browser.runtime.onMessage.addListener(
+      (message: HeadroomMessage, _sender, sendResponse) => {
+        if (message.type === "REFRESH_HISTORY") {
+          log("← REFRESH_HISTORY received from background");
+          const accepted = Boolean(
+            adapter.fetchHistory && adapter.dialogueIdFromUrl?.(location.href),
+          );
+          if (accepted) void fetchAndShipHistory();
+          // Acknowledgement means requested, not yet completed. The side panel
+          // checks a corresponding STATE_UPDATE before declaring success.
+          sendResponse({ accepted });
+          return;
+        }
+        if (message.type === "FETCH_CONVERSATION_LIST")
+          void fetchAndShipConversationList({ force: true });
+        if (message.type === "GET_TITLE") {
+          sendResponse({
+            dialogueTitle: adapter.dialogueTitleFromDoc?.(document) ?? null,
+          });
+        }
+        if (message.type === "GET_HANDOVER_DRAFT") {
+          // The raw transcript remains in the content script. Only the
+          // bounded, locally drafted text is sent back to the side panel.
+          const wantedId = message.dialogueId;
+          const currentId = adapter.dialogueIdFromUrl?.(location.href) ?? null;
+          if (
+            adapter.platformId !== "chatgpt" ||
+            !wantedId ||
+            currentId !== wantedId
+          ) {
+            sendResponse({
+              ok: false,
+              dialogueId: wantedId,
+              error: "当前页面不是所选的 ChatGPT 对话",
+            } satisfies HandoverDraftResponse);
+            return;
+          }
+          void (async () => {
+            try {
+              if (!adapter.fetchHistory)
+                throw new Error("无法读取当前聊天记录");
+              let history = await adapter.fetchHistory(wantedId);
+              let partialSource = false;
+              let failureNote = "";
+              if (!history.length) {
+                // One bounded retry, with a reason instead of the adapter's generic [].
+                await new Promise((resolve) => setTimeout(resolve, 700));
+                const diagnostic = await fetchChatGptHandoverHistory(wantedId);
+                history = diagnostic.rounds;
+                if (!history.length) {
+                  failureNote = diagnostic.error ?? "聊天历史暂时不可读";
+                  history = visibleChatGptRounds(document);
+                  partialSource = history.length > 0;
+                }
+              }
+              const afterFetchId =
+                adapter.dialogueIdFromUrl?.(location.href) ?? null;
+              if (afterFetchId !== wantedId)
+                throw new Error("读取期间切换了聊天窗口，请重试");
+              if (!history.length)
+                throw new Error(
+                  "无法提取聊天记录：" +
+                    (failureNote || "页面尚无可读取的文字消息") +
+                    "。请确认已打开具体聊天，并尝试点击聊天统计刷新。",
+                );
+              const args = {
+                title:
+                  adapter.dialogueTitleFromDoc?.(document) ?? "ChatGPT 聊天",
+                conversationId: wantedId,
+                rounds: history,
+              };
+              const draft =
+                message.mode === "ai-prompt"
+                  ? createAiHandoverPrompt(
+                      args,
+                      undefined,
+                      message.format === "json" ? "json" : "markdown",
+                    )
+                  : createHandoverDraft(args);
+              sendResponse({
+                ok: true,
+                dialogueId: wantedId,
+                markdown: partialSource
+                  ? "【注意：仅使用当前页面可见的部分聊天文本，并非完整聊天历史。原因：" +
+                    failureNote +
+                    "。如较早的对话未在页面中加载，交接内容将不完整；请核对。】\n\n" +
+                    ("text" in draft ? draft.text : draft.markdown)
+                  : "text" in draft
+                    ? draft.text
+                    : draft.markdown,
+                roundCount:
+                  "includedRounds" in draft
+                    ? draft.includedRounds
+                    : draft.roundCount,
+                sourceTruncated:
+                  partialSource ||
+                  ("truncated" in draft
+                    ? draft.truncated
+                    : draft.sourceTruncated),
+              } satisfies HandoverDraftResponse);
+            } catch (err) {
+              sendResponse({
+                ok: false,
+                dialogueId: wantedId,
+                error: err instanceof Error ? err.message : "交接草稿生成失败",
+              } satisfies HandoverDraftResponse);
+            }
+          })();
+          return true; // Keep Chrome's one-shot async response channel open.
+        }
+        if (message.type === "GET_STOP_ROUND") {
+          void (async () => {
+            // Find last AI reply (partial answer after stop).
+            const answerEls = document.querySelectorAll(adapter.answerSelector);
+            const lastAnswer = answerEls[answerEls.length - 1];
+            const answerText = (
+              lastAnswer as HTMLElement | undefined
+            )?.innerText?.trim();
+            if (!answerText) return;
+            // Find last user prompt — use adapter.userSelector if defined,
+            // otherwise walk backwards from the answer element.
+            let promptText = "";
+            if (adapter.userSelector) {
+              const userEls = document.querySelectorAll(adapter.userSelector);
+              const lastUser = userEls[userEls.length - 1];
+              promptText =
+                (lastUser as HTMLElement | undefined)?.innerText?.trim() ?? "";
+            }
+            if (!promptText) {
+              // Fallback: walk backwards from the answer element to find
+              // the preceding user message.
+              let walker: Element | null | undefined = lastAnswer;
+              for (let i = 0; i < 20 && walker; i++) {
+                const sib: Element | null = walker.previousElementSibling;
+                if (sib) {
+                  const text = (sib as HTMLElement).innerText?.trim();
+                  if (text && text !== answerText) {
+                    promptText = text;
+                    break;
+                  }
+                  walker = sib;
+                } else {
+                  walker = walker.parentElement;
+                }
+              }
+            }
+            if (!promptText) return;
+            send({
+              type: "STOP_ROUND_DATA",
+              promptText,
+              answerText,
+            } satisfies HeadroomMessage);
+          })();
+        }
+      },
+    );
+
+    // Initial load — always immediate, no debounce (user opened/reloaded the
+    // page; the gauge must show the current conversation right away).
+    log("INITIAL LOAD — sending PAGE_READY + fetchAndShipHistory");
+    sendPageReady();
+    void fetchAndShipHistory();
+    void fetchAndShipConversationList();
+
+    // SPA conversation switches change the URL WITHOUT reloading (DeepSeek is a
+    // React SPA), so PAGE_READY doesn't re-fire. Poll the URL lightly and, when
+    // the conversation changes, re-announce + re-fetch its history. Use the
+    // content-script CONTEXT's interval (not window.setInterval) so it
+    // AUTO-CLEARS when the context is invalidated (extension reload) — otherwise
+    // the dead context throws "Extension context invalidated" every tick.
+    //
+    // NO DEBOUNCE (product decision 2026-08): every switch fetches the new
+    // conversation immediately — "click a conversation, see its count now".
+    // Rapid tab-through is absorbed by fetchAndShipHistory's serialization:
+    // only one fetch in flight, later switches queue a re-run for the LATEST
+    // conversation, and a fetch that finished after the URL moved on is
+    // discarded (dialogueId guard). Cost of a fast pass over N conversations:
+    // N fetches — accepted in exchange for snappiness. The conversation-list
+    // fetch keeps its own 30s throttle.
+    let lastHref = location.href;
+    let lastTitle = document.title;
+
+    // DOM-based turn detector: when the answer DOM changes — a new answer
+    // element mounting OR the last answer's text still growing — re-arm the
+    // 2s settle timer; fetch only after a full quiet 2s. Primary mechanism
+    // for Gemini (whose webRequest onCompleted doesn't fire for
+    // StreamGenerate).
+    //
+    // The signature folds in the LAST answer's text length because Gemini
+    // mounts <model-response> at stream START and fills it for many seconds:
+    // a count-only signature stabilised immediately and the old detector
+    // scraped mid-stream (measured 2026-07: fired at 180 of 983 chars) with
+    // no later trigger to correct it. Text growth now keeps the settle timer
+    // armed; an early fire on a >1s mid-stream pause self-corrects — the
+    // next growth re-triggers and the re-scrape replaces the round in place.
+    const answerSignature = (): string => {
+      const els = document.querySelectorAll(adapter.answerSelector);
+      const last = els[els.length - 1];
+      return answerStreamSignature(
+        els.length,
+        last ? (last.textContent ?? "").length : 0,
+      );
+    };
+    let lastAnswerSig = answerSignature();
+    let domChangeTimer: ReturnType<typeof setTimeout> | null = null;
+
+    // URL/title poll at 500ms — snappy switch detection (≤0.5s from click to
+    // cached projection + fetch start). The DOM-stream detector below keeps
+    // its own 1500ms cadence so streaming provisional ships don't triple.
+    ctx.setInterval(() => {
+      if (location.href !== lastHref) {
+        log("SPA SWITCH detected: old=", lastHref, "→ new=", location.href);
+        lastHref = location.href;
+        lastTitle = document.title;
+        // Reset the answer signature for the new page so the DOM detector
+        // starts from the new conversation's baseline.
+        lastAnswerSig = answerSignature();
+        sendPageReady(); // instant UX — gauge resets to cached/new record
+        void fetchAndShipHistory(); // immediate — no debounce
+        void fetchAndShipConversationList(); // own 30s throttle applies
+      } else if (document.title !== lastTitle) {
+        lastTitle = document.title;
+        sendPageReady(); // title-only — rename detected, no history refetch needed
+      }
+    }, 500);
+
+    // DOM-based detection (Gemini only): any answer-DOM activity ships a
+    // PROVISIONAL update (local broadcast only, no cloud write). A 2s settle
+    // timer runs alongside — when it fires without being re-armed, the final
+    // NON-provisional ship writes the cloud in exactly one GET+SET pair.
+    // 2s > 1.5s DOM poll ⇒ the poll sees quiescence and lets the timer fire
+    // before the next tick. Cost: real-time UI at 1.5s cadence (free, local
+    // broadcast), exactly 2 cloud commands per round (design baseline).
+    ctx.setInterval(() => {
+      if (!adapter.needsDomPollDetection) return;
+      const currentSig = answerSignature();
+      if (currentSig !== lastAnswerSig) {
+        log(
+          `DOM CHANGE: answer signature ${lastAnswerSig} → ${currentSig} — shipping provisional`,
+        );
+        lastAnswerSig = currentSig;
+        void fetchAndShipHistory(true); // provisional — local only
+        if (domChangeTimer != null) clearTimeout(domChangeTimer);
+        domChangeTimer = setTimeout(() => {
+          domChangeTimer = null;
+          log("DOM settled for 2s — shipping final non-provisional");
+          void fetchAndShipHistory(false);
+        }, 2000);
+      }
+    }, 1500);
+  },
+});

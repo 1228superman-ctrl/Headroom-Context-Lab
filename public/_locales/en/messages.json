@@ -1,0 +1,275 @@
+{
+  "extDescription": {
+    "message": "Estimate readable historical chat tokens and create handover summaries in a side panel."
+  },
+  "subtitle": {
+    "message": "Historical chat token estimate and handover"
+  },
+  "openSettings": {
+    "message": "Settings"
+  },
+  "detectingPlatform": {
+    "message": "Detecting platform…"
+  },
+  "noContext": {
+    "message": "— context"
+  },
+  "untitledDialogue": {
+    "message": "Untitled conversation"
+  },
+  "contextSuffix": {
+    "message": "context"
+  },
+  "tokensUnit": {
+    "message": "tokens"
+  },
+  "round": {
+    "message": "Round"
+  },
+  "lastRound": {
+    "message": "Current round"
+  },
+  "statusIdle": {
+    "message": "Waiting for conversation…"
+  },
+  "statusGreen": {
+    "message": "Safe · plenty of room"
+  },
+  "statusYellow": {
+    "message": "Moderate · watch usage"
+  },
+  "statusRed": {
+    "message": "Tight · start a new chat"
+  },
+  "settingsTitle": {
+    "message": "Settings"
+  },
+  "back": {
+    "message": "Back"
+  },
+  "thresholdsTitle": {
+    "message": "Warning thresholds"
+  },
+  "yellowLabel": {
+    "message": "Yellow (moderate)"
+  },
+  "redLabel": {
+    "message": "Red (tight)"
+  },
+  "legendGreen": {
+    "message": "Plenty of room"
+  },
+  "legendYellow": {
+    "message": "Getting tight"
+  },
+  "legendRed": {
+    "message": "Likely to forget"
+  },
+  "resetDefaults": {
+    "message": "Reset to defaults"
+  },
+  "contextLimitsTitle": {
+    "message": "Context window limits"
+  },
+  "contextLimitsHint": {
+    "message": "Auto-detected per platform — override any value to match your plan."
+  },
+  "resetContextLimits": {
+    "message": "Reset to defaults"
+  },
+  "ctxLimitInvalid": {
+    "message": "Enter a whole number ≥ 1"
+  },
+  "chatgptContextLimitNote": {
+    "message": "· Web context by plan: Free 27K · Go/Plus/Business 54K · Pro 128K"
+  },
+  "roundsTitle": {
+    "message": "Token usage by round"
+  },
+  "roundToolLegend": {
+    "message": "- means no extra search/tool content this round; DeepSeek/ChatGPT search content never persists into later rounds."
+  },
+  "roundHeaderN": {
+    "message": "Round"
+  },
+  "roundHeaderInput": {
+    "message": "Input"
+  },
+  "roundHeaderTool": {
+    "message": "Search/Tool"
+  },
+  "roundHeaderOutput": {
+    "message": "Output"
+  },
+  "roundHeaderCumulative": {
+    "message": "Total"
+  },
+  "languageLabel": {
+    "message": "Language"
+  },
+  "langAuto": {
+    "message": "Auto (follow browser)"
+  },
+  "upstashTitle": {
+    "message": "Upstash sync"
+  },
+  "upstashUrlLabel": {
+    "message": "REST URL"
+  },
+  "upstashTokenLabel": {
+    "message": "REST Token"
+  },
+  "showToken": {
+    "message": "Show token"
+  },
+  "hideToken": {
+    "message": "Hide token"
+  },
+  "upstashHint": {
+    "message": "Use the REST API credentials from the Upstash console — not the Redis password."
+  },
+  "testConnection": {
+    "message": "Test connection"
+  },
+  "pullFromCloud": {
+    "message": "Pull from cloud"
+  },
+  "pullFromCloudTitle": {
+    "message": "Fetch the settings saved on your other devices from Upstash and apply them here (cloud → local)"
+  },
+  "pullingSettings": {
+    "message": "Pulling from cloud…"
+  },
+  "pullAdopted": {
+    "message": "Pulled — cloud settings applied locally"
+  },
+  "pullUpToDate": {
+    "message": "Already up to date — cloud has nothing newer"
+  },
+  "pullFailed": {
+    "message": "Pull failed — check network or credentials"
+  },
+  "clearUpstash": {
+    "message": "Clear"
+  },
+  "testingConnection": {
+    "message": "Testing…"
+  },
+  "saveSettings": {
+    "message": "Save settings"
+  },
+  "settingsSaved": {
+    "message": "Saved"
+  },
+  "upstashOk": {
+    "message": "Connected ✓"
+  },
+  "upstashErrMissing": {
+    "message": "Enter both URL and token first."
+  },
+  "upstashErrAuth": {
+    "message": "Unauthorized — check the token (REST token ≠ Redis password)."
+  },
+  "upstashErrUnexpected": {
+    "message": "Connected, but unexpected response."
+  },
+  "upstashErrStatus": {
+    "message": "Request failed"
+  },
+  "upstashErrNetwork": {
+    "message": "Network error"
+  },
+  "upstashErrNotHttps": {
+    "message": "Upstash URL must use https:// — http would expose your token."
+  },
+  "advancedSettings": {
+    "message": "Advanced"
+  },
+  "advancedSettingsHint": {
+    "message": "Override token estimation coefficients per platform. Changes require refreshing the AI platform page."
+  },
+  "resetAllCoefficients": {
+    "message": "Reset all to defaults"
+  },
+  "coeffReset": {
+    "message": "Reset"
+  },
+  "coeffRefreshHint": {
+    "message": "Coefficient changes saved — refresh the AI platform page for them to take effect."
+  },
+  "coeffCjk": {
+    "message": "CJK"
+  },
+  "coeffKana": {
+    "message": "Kana"
+  },
+  "coeffHangul": {
+    "message": "Hangul"
+  },
+  "coeffCyrillic": {
+    "message": "Cyrillic"
+  },
+  "coeffArabic": {
+    "message": "Arabic"
+  },
+  "coeffLatin": {
+    "message": "Latin"
+  },
+  "coeffUnitChar": {
+    "message": "tok/ch"
+  },
+  "coeffUnitWord": {
+    "message": "tok/wd"
+  },
+  "coeffDescription": {
+    "message": "Estimate tokens per character (CJK/Kana/Hangul) or per word (Cyrillic/Arabic/Latin). Higher = more tokens for that script."
+  },
+  "platformRefTitle": {
+    "message": "Platform Reference"
+  },
+  "platformRefModel": {
+    "message": "Model"
+  },
+  "platformRefContext": {
+    "message": "Context window"
+  },
+  "platformRefTokenizer": {
+    "message": "Tokenizer"
+  },
+  "estimationGuideTitle": {
+    "message": "How token estimation works"
+  },
+  "estimationGuideText": {
+    "message": "Headroom estimates token counts from the conversation text using per-script coefficients — it never trusts the platform's own count. CJK ideographs, Japanese kana, and Korean Hangul are counted per character. Cyrillic, Arabic, and Latin (and anything else) are counted per whitespace-separated word. Each script has a coefficient that represents the average tokens per counting unit for that model's tokenizer, calibrated by observing real tokenizer output. You can adjust these coefficients per platform in the Advanced settings above. Web-search results and tool-call text are counted into the round's total the same way, shown in the Search/Tool column of the round table."
+  },
+  "aboutTitle": {
+    "message": "About"
+  },
+  "aboutContribute": {
+    "message": "Contributions welcome — open an issue or pull request at"
+  },
+  "platformRefNoteDeepseek": {
+    "message": "Measured against the open DeepSeek-V4 tokenizer (exact). Chinese is cheap: ~0.6 tok/ch; Cyrillic/Arabic ~2.1 tok/wd."
+  },
+  "platformRefNoteChatgpt": {
+    "message": "Measured offline with tiktoken o200k_base (exact — GPT-5.6 keeps the same tokenizer, confirmed 2026-08). CJK ~0.8 tok/ch; Latin ~1.3 tok/wd."
+  },
+  "platformRefNoteGemini": {
+    "message": "Tokenizer not public; measured via Gemma 4 — Google's open family, 262K SentencePiece in the same lineage; 3.6 Flash's tokenizer unconfirmed unchanged. CJK ~0.7 tok/ch."
+  },
+  "platformRefNoteKimi": {
+    "message": "Measured against the open Kimi K3 tiktoken vocab (exact). Chinese ~0.6 tok/ch; Cyrillic/Arabic words are costly (~2.8 tok/wd)."
+  },
+  "platformRefNoteQwen": {
+    "message": "Measured against the open Qwen tokenizer (exact — Qwen3.8-Max open weights ship the same vocab as 3.6). CJK ~0.6 tok/ch."
+  },
+  "platformRefNoteQianwen": {
+    "message": "Same tokenizer family as Qwen — shares the same measured coefficients."
+  },
+  "platformRefNoteDoubao": {
+    "message": "Closed tokenizer; measured via ByteDance's open Seed-OSS-36B (still the latest open Seed model, 2026-08) as proxy. Tune if the gauge drifts — kana is the least reliable value."
+  },
+  "aboutStack": {
+    "message": "Built with WXT, Vitest, and TypeScript."
+  }
+}

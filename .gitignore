@@ -1,0 +1,57 @@
+# Dependencies
+node_modules/
+
+# Build output
+.output/
+dist/
+*.zip
+
+# WXT generated
+.wxt/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# AI agent local config
+.claude/settings.local.json
+.mimocode/
+
+# Playwright MCP — generated browser artifacts
+.playwright-mcp/
+
+# Requirements — human discussion/drafts, not part of codebase
+requirements/
+
+# Docs — working design docs + plans, not part of codebase
+docs/
+handoff.md
+
+# QA — local manual acceptance checklist, not version-controlled
+qa.md
+coverage/
+
+# Local development history and personal workspace data
+backups/
+LOCAL-TEST-README.md
+*.p12
+*.pfx
+*oauth*credentials*
+*.local.json
+release/
+.releases/
