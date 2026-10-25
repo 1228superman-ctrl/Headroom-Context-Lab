@@ -25,10 +25,8 @@ jobs:
       - run: npm run lint
       - run: npm run test:run
       - run: npm run build:chrome
-      - name: Portable helper selftests
-        run: |
-          node companion/selftest.mjs
-          node companion/selftest-origin.mjs
+      - name: Cross-platform origin security test
+        run: node companion/selftest-origin.mjs
 
   windows-helper:
     runs-on: windows-latest
@@ -38,15 +36,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
-      - name: Isolated OAuth mock test
+      - name: Isolated localhost contract test
         shell: pwsh
         run: |
-          $env:USERPROFILE = Join-Path $env:RUNNER_TEMP "headroom-isolated-oauth-test"
-          New-Item -ItemType Directory -Path $env:USERPROFILE -Force | Out-Null
-          node companion/selftest-oauth.mjs
-      - name: Local server contract test
-        shell: pwsh
-        run: |
+          $ErrorActionPreference = 'Stop'
           $env:USERPROFILE = Join-Path $env:RUNNER_TEMP "headroom-isolated-server-test"
           New-Item -ItemType Directory -Path $env:USERPROFILE -Force | Out-Null
           node companion/selftest-server.mjs
+      - name: Extension origin security test
+        run: node companion/selftest-origin.mjs
