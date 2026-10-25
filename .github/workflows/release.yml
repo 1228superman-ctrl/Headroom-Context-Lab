@@ -44,4 +44,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$env:GITHUB_REF_NAME" 'release/Headroom-Context-Lab-Chrome-v0.6.10.zip' 'release/Headroom-Context-Lab-Windows-Companion-v0.6.10.zip' --repo "$env:GITHUB_REPOSITORY" --title 'Headroom Context Lab v0.6.10' --notes-file RELEASE_NOTES_v0.6.10.md --verify-tag
+          gh release view "$env:GITHUB_REF_NAME" --repo "$env:GITHUB_REPOSITORY" --json id *> $null
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "Release already published. Skipping duplicate creation."
+          } else {
+            gh release create "$env:GITHUB_REF_NAME" 'release/Headroom-Context-Lab-Chrome-v0.6.10.zip' 'release/Headroom-Context-Lab-Windows-Companion-v0.6.10.zip' --repo "$env:GITHUB_REPOSITORY" --title 'Headroom Context Lab v0.6.10' --notes-file RELEASE_NOTES_v0.6.10.md --verify-tag
+          }
