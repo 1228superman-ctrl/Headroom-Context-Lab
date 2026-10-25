@@ -1,0 +1,39 @@
+name: Publish GitHub Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    if: github.repository == '1228superman-ctrl/Headroom-Context-Lab'
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run test:run
+      - run: node scripts/check-publication.mjs
+      - run: npm run build:chrome
+      - name: Package release assets
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path release -Force | Out-Null
+          Compress-Archive -Path '.output/chrome-mv3/*' -DestinationPath 'release/Headroom-Context-Lab-Chrome-v0.6.9.zip' -CompressionLevel Optimal -Force
+          Compress-Archive -Path 'companion' -DestinationPath 'release/Headroom-Context-Lab-Windows-Companion-v0.6.9.zip' -CompressionLevel Optimal -Force
+          if (!(Test-Path 'release/Headroom-Context-Lab-Chrome-v0.6.9.zip') -or !(Test-Path 'release/Headroom-Context-Lab-Windows-Companion-v0.6.9.zip')) { throw 'Release assets missing' }
+      - name: Create GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$env:GITHUB_REF_NAME" 'release/Headroom-Context-Lab-Chrome-v0.6.9.zip' 'release/Headroom-Context-Lab-Windows-Companion-v0.6.9.zip' --repo "$env:GITHUB_REPOSITORY" --title 'Headroom Context Lab v0.6.9' --notes-file RELEASE_NOTES_v0.6.9.md --verify-tag

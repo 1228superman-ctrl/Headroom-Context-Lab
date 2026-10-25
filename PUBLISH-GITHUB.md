@@ -1,18 +1,19 @@
-# GitHub 发布操作（首次新建仓库）
+# GitHub 开源发布说明
 
-本地公开发布版已准备好，分支为 `main`，所有公开文件已提交。
+公开仓库：https://github.com/1228superman-ctrl/Headroom-Context-Lab
 
-仓库所有者：`1228superman-ctrl`
-建议仓库名称：`Headroom-Context-Lab`
-仓库可见性：**Public**
+- 完整源码位于 main 分支。
+- GitHub Actions CI 对源码更新执行 TypeScript、Lint、单元测试、Chrome 构建及隔离助手测试。
+- .github/workflows/release.yml 在推送 v0.6.9 标签时，自动重新构建两个 ZIP 并创建 GitHub Release。
+- 本地 release 目录仅供本机使用，不进入 git。
 
-1. 点击预填信息的 [GitHub 新建仓库页面](https://github.com/new?owner=1228superman-ctrl&name=Headroom-Context-Lab&description=Chat%20history%20token%20estimates%20and%20structured%20handover%20summaries%20for%20Chrome&visibility=public)。
-2. 点击 **Create repository**。不要勾选初始化 README、.gitignore 或 LICENSE，因为本地已经包含这些文件。
-3. 回到本地发布目录，双击 `Publish-To-GitHub.cmd`，脚本会执行 `git push -u origin main`。如 GitHub 或 Git Credential Manager 要求授权，在浏览器中完成登录。
-4. 刷新 GitHub 仓库页面，确认 README、LICENSE、NOTICE、PRIVACY 等文件均可见，并检查 Actions 构建结果。
+发布首个标签的命令：
 
-推荐随后在 GitHub Releases 中发布 `release` 文件夹内的两个 ZIP：
-- `Headroom-Context-Lab-Chrome-v0.6.9.zip`：解压后在 Chrome 加载包含 manifest.json 的目录。
-- `Headroom-Context-Lab-Windows-Companion-v0.6.9.zip`：解压后双击 `companion/Install-Headroom.cmd`。
+~~~sh
+git tag -a v0.6.9 -m "Headroom Context Lab v0.6.9 open-source beta"
+git push origin v0.6.9
+~~~
 
-**不要**上传本机 `%LOCALAPPDATA%\HeadroomContextLab`、浏览器配置文件、旧版工作备份或原始聊天截图。本仓库本身不包含这些数据。
+发布结果：https://github.com/1228superman-ctrl/Headroom-Context-Lab/releases
+
+**安全提醒：** 不公开上传历史 backups、本机凭据、OAuth 回调链接、浏览器用户数据及聊天正文。
