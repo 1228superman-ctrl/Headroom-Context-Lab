@@ -24,16 +24,24 @@ jobs:
       - run: npm run test:run
       - run: node scripts/check-publication.mjs
       - run: npm run build:chrome
-      - name: Package release assets
+      - name: Package release assets with license
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Path release -Force | Out-Null
-          Compress-Archive -Path '.output/chrome-mv3/*' -DestinationPath 'release/Headroom-Context-Lab-Chrome-v0.6.9.zip' -CompressionLevel Optimal -Force
-          Compress-Archive -Path 'companion' -DestinationPath 'release/Headroom-Context-Lab-Windows-Companion-v0.6.9.zip' -CompressionLevel Optimal -Force
-          if (!(Test-Path 'release/Headroom-Context-Lab-Chrome-v0.6.9.zip') -or !(Test-Path 'release/Headroom-Context-Lab-Windows-Companion-v0.6.9.zip')) { throw 'Release assets missing' }
+          Copy-Item LICENSE .output/chrome-mv3/LICENSE.txt -Force
+          Copy-Item NOTICE.md .output/chrome-mv3/NOTICE.md -Force
+          Compress-Archive -Path '.output/chrome-mv3/*' -DestinationPath 'release/Headroom-Context-Lab-Chrome-v0.6.10.zip' -CompressionLevel Optimal -Force
+          New-Item -ItemType Directory -Path release/companion-stage -Force | Out-Null
+          Copy-Item companion release/companion-stage/companion -Recurse -Force
+          Copy-Item LICENSE release/companion-stage/LICENSE.txt -Force
+          Copy-Item NOTICE.md release/companion-stage/NOTICE.md -Force
+          Compress-Archive -Path 'release/companion-stage/*' -DestinationPath 'release/Headroom-Context-Lab-Windows-Companion-v0.6.10.zip' -CompressionLevel Optimal -Force
+          Remove-Item release/companion-stage -Recurse -Force
+          if (!(Test-Path 'release/Headroom-Context-Lab-Chrome-v0.6.10.zip') -or !(Test-Path 'release/Headroom-Context-Lab-Windows-Companion-v0.6.10.zip')) { throw 'Release assets missing' }
       - name: Create GitHub Release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$env:GITHUB_REF_NAME" 'release/Headroom-Context-Lab-Chrome-v0.6.9.zip' 'release/Headroom-Context-Lab-Windows-Companion-v0.6.9.zip' --repo "$env:GITHUB_REPOSITORY" --title 'Headroom Context Lab v0.6.9' --notes-file RELEASE_NOTES_v0.6.9.md --verify-tag
+          gh release create "$env:GITHUB_REF_NAME" 'release/Headroom-Context-Lab-Chrome-v0.6.10.zip' 'release/Headroom-Context-Lab-Windows-Companion-v0.6.10.zip' --repo "$env:GITHUB_REPOSITORY" --title 'Headroom Context Lab v0.6.10' --notes-file RELEASE_NOTES_v0.6.10.md --verify-tag

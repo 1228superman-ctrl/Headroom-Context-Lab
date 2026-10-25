@@ -3,7 +3,7 @@
   "description": "Browser extension that shows how much context window you have left in AI chat conversations.",
   "license": "Apache-2.0",
   "private": true,
-  "version": "0.6.9",
+  "version": "0.6.10",
   "type": "module",
   "engines": {
     "node": ">=24",

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.10 — Recoverable handovers (2026-10-25)
+- Preserve per-chat handover drafts and results in browser session storage when switching tabs.
+- Run user-confirmed summaries as recoverable localhost jobs with idempotent request IDs.
+- Restore accepted tasks after sidebar closure and prevent cross-conversation text leakage.
+- Add expiry, validation, and session-state tests.
+
 ## 0.6.9 — first open-source test release (2026-10-24)
 
 - Refined current-conversation historical token display; removed misleading actual-context occupancy claims.

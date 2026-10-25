@@ -1,10 +1,15 @@
-﻿import "./style.css";
+import "./style.css";
 import type {
   HeadroomMessage,
   HandoverDraftResponse,
   UsageState,
 } from "../../utils/messages";
 import { summarizeChatGptHistory } from "../../utils/chatgpt-history-summary";
+import {
+  handoverKey,
+  restorableHandover,
+  isSourceChat,
+} from "../../utils/handover-session";
 import { automaticSummaryPreflight } from "../../utils/summary-preflight";
 import {
   normalizeHandoverResult,
@@ -17,7 +22,6 @@ import {
 import {
   callCompanion,
   type CompanionStatus,
-  type CompanionResult,
 } from "../../utils/local-summary-client";
 import {
   DEFAULT_THRESHOLDS,
@@ -463,14 +467,119 @@ function finishManualRefreshOnStateUpdate(state: UsageState): void {
     "（历史文本估算，不代表模型剩余上下文）";
 }
 
-// A generated draft stays only in the side panel's memory. Changing the chat
-// invalidates it and any in-flight request so it cannot leak between windows.
+// Handover state belongs to the source chat. Never display it in other chats.
+// Review text lives in extension session memory (not synced or kept on disk).
 let handoverScopeId: string | null = null;
-let handoverGeneration = 0;
+// Independent generation counter per chat: requesting a draft for chat B must
+// not discard a still-running draft request for chat A.
+const handoverGenerations = new Map<string, number>();
+function nextHandoverGeneration(id: string): number {
+  const next = (handoverGenerations.get(id) ?? 0) + 1;
+  handoverGenerations.set(id, next);
+  return next;
+}
+function currentHandoverGeneration(id: string, seq: number): boolean {
+  return handoverGenerations.get(id) === seq;
+}
 let isAiHandoverPrompt = false;
 let preparedRemote: "api" | "plan" | null = null;
 let preparedSummaryFormat: HandoverFormat = "markdown";
 let sendingRemote = false;
+
+type SavedHandover = {
+  text: string;
+  status: string;
+  sendStatus: string;
+  copyLabel: string;
+  remote: "api" | "plan" | null;
+  format: HandoverFormat;
+  isAiPrompt: boolean;
+  updatedAt: number;
+  jobId?: string;
+};
+
+const handoverByChat = new Map<string, SavedHandover>();
+const activePollers = new Set<string>();
+// Serialize session writes so a late, smaller draft does not overwrite a
+// newer finished result, and an explicit clear cannot race with regeneration.
+const handoverWrites = new Map<string, Promise<void>>();
+function queueHandoverWrite(id: string, action: () => Promise<void>): void {
+  const prior = handoverWrites.get(id) ?? Promise.resolve();
+  const next = prior
+    .catch(() => {})
+    .then(action)
+    .catch(() => {});
+  handoverWrites.set(id, next);
+}
+function captureHandover(): SavedHandover {
+  return {
+    text: els.handoverText.value,
+    status: els.handoverStatus.textContent || "",
+    sendStatus: els.handoverSendStatus.textContent || "",
+    copyLabel: els.handoverCopy.textContent || "复制已编辑草稿",
+    remote: preparedRemote,
+    format: preparedSummaryFormat,
+    isAiPrompt: isAiHandoverPrompt,
+    updatedAt: Date.now(),
+  };
+}
+
+function storeHandover(id: string, value: SavedHandover): void {
+  handoverByChat.set(id, value);
+  queueHandoverWrite(id, () =>
+    browser.storage.session.set({ [handoverKey(id)]: value }),
+  );
+}
+
+function showHandover(value: SavedHandover): void {
+  els.handoverText.value = value.text;
+  els.handoverEditor.hidden = false;
+  els.handoverStatus.textContent = value.status;
+  els.handoverCopy.textContent = value.copyLabel;
+  preparedRemote = value.remote;
+  preparedSummaryFormat = value.format;
+  isAiHandoverPrompt = value.isAiPrompt;
+  els.handoverSendConfirm.hidden = !value.remote || !!value.jobId;
+  showSendStatus(value.sendStatus);
+}
+
+function saveVisibleHandover(): void {
+  if (!handoverScopeId || els.handoverEditor.hidden) return;
+  const latest = handoverByChat.get(handoverScopeId);
+  storeHandover(handoverScopeId, {
+    ...captureHandover(),
+    jobId: latest?.jobId,
+  });
+}
+
+function restoreHandover(id: string): void {
+  const cached = handoverByChat.get(id);
+  if (cached) {
+    showHandover(cached);
+    if (cached.jobId) void pollSummaryJob(id, cached.jobId);
+    return;
+  }
+  void browser.storage.session
+    .get(handoverKey(id))
+    .then((result) => {
+      const candidate = result[handoverKey(id)] as SavedHandover | undefined;
+      if (!restorableHandover(candidate) || handoverByChat.has(id)) return;
+      handoverByChat.set(id, candidate);
+      if (isSourceChat(id, handoverScopeId)) showHandover(candidate);
+      if (candidate.jobId) void pollSummaryJob(id, candidate.jobId);
+    })
+    .catch(() => {});
+}
+
+function clearSavedHandover(id: string): void {
+  handoverByChat.delete(id);
+  queueHandoverWrite(id, () => browser.storage.session.remove(handoverKey(id)));
+}
+
+function commitHandover(id: string, value: SavedHandover): void {
+  storeHandover(id, value);
+  if (isSourceChat(id, handoverScopeId)) showHandover(value);
+}
 
 function showSendStatus(text: string): void {
   els.handoverSendStatus.textContent = text;
@@ -493,11 +602,13 @@ function syncHandoverScope(state: UsageState): void {
   const id = state.platformId === "chatgpt" ? state.dialogueId : null;
   els.handoverSection.hidden = !id;
   if (id === handoverScopeId) return;
+  saveVisibleHandover();
   handoverScopeId = id;
-  handoverGeneration++;
+  // A tab switch must not invalidate a pending request for another chat.
   els.handoverGenerate.disabled = false;
   els.handoverAiGenerate.disabled = false;
   clearHandoverEditor();
+  if (id) restoreHandover(id);
 }
 
 function generateHandover(
@@ -508,7 +619,8 @@ function generateHandover(
     const id =
       currentState.platformId === "chatgpt" ? currentState.dialogueId : null;
     if (!id) return;
-    const seq = ++handoverGeneration;
+    const seq = nextHandoverGeneration(id);
+    clearSavedHandover(id);
     const format: HandoverFormat =
       els.handoverFormat.value === "json" ? "json" : "markdown";
     clearHandoverEditor();
@@ -538,58 +650,50 @@ function generateHandover(
         format,
       } satisfies HeadroomMessage)) as HandoverDraftResponse | undefined;
 
-      if (seq !== handoverGeneration || handoverScopeId !== id) return;
-      const [stillActive] = await browser.tabs.query({
-        active: true,
-        currentWindow: true,
-      });
-      if (
-        stillActive?.id !== active.id ||
-        !stillActive.url ||
-        chatgptAdapter?.dialogueIdFromUrl?.(stillActive.url) !== id
-      )
-        throw new Error("读取期间切换了聊天窗口，请重新生成");
+      if (!currentHandoverGeneration(id, seq)) return;
+      // The request belongs to active.id captured at its start. Tab changes
+      // later must not invalidate the result or make it appear in another chat.
 
       if (!result?.ok || result.dialogueId !== id || !result.markdown) {
         throw new Error(result?.error ?? "没有读到可供迁移的文本");
       }
-      els.handoverText.value = result.markdown;
-      els.handoverEditor.hidden = false;
-      if (remote) {
-        preparedRemote = remote;
-        preparedSummaryFormat = format;
-        els.handoverSendConfirm.hidden = false;
-        showSendStatus(
-          "生成前会检查 API Key 或 ChatGPT 套餐授权。点击后仅将已核对的内容交给 OpenAI 总结，不会自动发到聊天窗口。",
-        );
-        els.handoverCopy.textContent = "复制 AI 提示词";
-        els.handoverStatus.textContent =
-          "请检查原文并删除敏感内容，然后点击“生成交接摘要”。摘要只在插件里显示，需手动复制到新聊天窗口。";
-        return;
-      }
-      if (mode === "ai-prompt") {
-        els.handoverStatus.textContent =
-          "AI 提示词已准备：" +
-          (result.roundCount ?? 0) +
-          " 轮证据摘录" +
-          (result.sourceTruncated ? "（部分内容已省略）" : "") +
-          "。请检查敏感信息后复制，手动粘贴给 ChatGPT 总结。";
-        return;
-      }
-      els.handoverStatus.textContent =
-        "已生成 " +
-        (result.roundCount ?? 0) +
-        " 轮候选草稿" +
-        (result.sourceTruncated ? "（篇幅已截断）" : "") +
-        "。请核对并编辑，然后点击复制。";
+      commitHandover(id, {
+        text: result.markdown,
+        status: remote
+          ? "请检查原文并删除敏感内容，然后点击“生成交接摘要”。摘要不会自动发到新聊天。"
+          : mode === "ai-prompt"
+            ? "AI 提示词已准备：" +
+              (result.roundCount ?? 0) +
+              " 轮证据摘录" +
+              (result.sourceTruncated ? "（部分内容已省略）" : "") +
+              "。请检查后复制。"
+            : "已生成 " +
+              (result.roundCount ?? 0) +
+              " 轮候选草稿" +
+              (result.sourceTruncated ? "（篇幅已截断）" : "") +
+              "。请核对并编辑后复制。",
+        sendStatus: remote
+          ? "确认提交时，只有你核对后的摘要输入会发送至 OpenAI；切换网页不再丢失进度。"
+          : "",
+        copyLabel: remote
+          ? "复制 AI 提示词"
+          : mode === "ai-prompt"
+            ? "复制 AI 总结提示词"
+            : "复制已编辑草稿",
+        remote,
+        format,
+        isAiPrompt: mode === "ai-prompt",
+        updatedAt: Date.now(),
+      });
     } catch (err) {
-      if (seq === handoverGeneration && handoverScopeId === id) {
-        els.handoverStatus.textContent =
+      if (currentHandoverGeneration(id, seq)) {
+        const message =
           "生成失败：" +
           (err instanceof Error ? err.message : "请刷新聊天重试");
+        if (handoverScopeId === id) els.handoverStatus.textContent = message;
       }
     } finally {
-      if (seq === handoverGeneration) {
+      if (currentHandoverGeneration(id, seq)) {
         els.handoverGenerate.disabled = false;
         els.handoverAiGenerate.disabled = false;
       }
@@ -624,11 +728,15 @@ els.handoverCopy.addEventListener("click", () => {
 });
 
 els.handoverClear.addEventListener("click", () => {
-  handoverGeneration++;
+  if (handoverScopeId) {
+    nextHandoverGeneration(handoverScopeId);
+    clearSavedHandover(handoverScopeId);
+  }
   els.handoverGenerate.disabled = false;
   els.handoverAiGenerate.disabled = false;
   clearHandoverEditor();
 });
+els.handoverText.addEventListener("input", () => saveVisibleHandover());
 
 // -------- Automatic summary: separate local companion, no browser-stored keys --------
 function remoteError(error: unknown): string {
@@ -728,6 +836,87 @@ els.handoverPlanDisconnect.addEventListener("click", () => {
   })();
 });
 
+/** Results remain in the localhost service for up to an hour, even if this
+ * panel closes. Poll by opaque job id and display only under its source chat. */
+async function pollSummaryJob(id: string, jobId: string): Promise<void> {
+  const marker = id + ":" + jobId;
+  if (activePollers.has(marker)) return;
+  activePollers.add(marker);
+  try {
+    for (let attempt = 0; attempt < 150; attempt++) {
+      const current = handoverByChat.get(id);
+      if (!current || current.jobId !== jobId) return;
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      let result: {
+        state: "running" | "done" | "failed";
+        summary?: string;
+        model?: string;
+        error?: string;
+      };
+      try {
+        result = await callCompanion(`/jobs/${jobId}`);
+      } catch (error) {
+        const errorMessage = remoteError(error);
+        // Connection might briefly drop; do not lose the accepted job id.
+        if (attempt < 5) continue;
+        commitHandover(id, {
+          ...current,
+          status:
+            "查询摘要失败：" +
+            errorMessage +
+            "。原任务可能仍在运行；请先检查本机服务，不要立即重复提交。",
+          sendStatus: "任务编号已保留，重新打开原聊天可继续检查。",
+          updatedAt: Date.now(),
+        });
+        return;
+      }
+      if (result.state === "running") continue;
+      if (result.state === "failed") {
+        commitHandover(id, {
+          ...current,
+          jobId: undefined,
+          status: "自动总结失败：" + (result.error || "未知错误"),
+          sendStatus: "失败原因已保留；可修正后重新发起。",
+          updatedAt: Date.now(),
+        });
+        return;
+      }
+      if (result.state === "done" && typeof result.summary === "string") {
+        const normalized = normalizeHandoverResult(
+          result.summary,
+          current.format,
+        );
+        commitHandover(id, {
+          text: normalized.text,
+          status:
+            "摘要生成完成（" +
+            (result.model || "所选模型") +
+            "）。请核对完成状态并手动复制到新聊天。",
+          sendStatus:
+            normalized.warning ??
+            "摘要已保留在原聊天的临时交接区，切换标签不会清空。",
+          copyLabel: "复制交接摘要（用于新聊天）",
+          remote: null,
+          format: current.format,
+          isAiPrompt: false,
+          updatedAt: Date.now(),
+        });
+        return;
+      }
+    }
+    const current = handoverByChat.get(id);
+    if (current?.jobId === jobId)
+      commitHandover(id, {
+        ...current,
+        status:
+          "摘要查询超时，任务可能仍在运行。切回原聊天检查后再决定是否重新提交。",
+        updatedAt: Date.now(),
+      });
+  } finally {
+    activePollers.delete(marker);
+  }
+}
+
 els.handoverSendConfirm.addEventListener("click", () => {
   void (async () => {
     const provider = preparedRemote;
@@ -736,7 +925,7 @@ els.handoverSendConfirm.addEventListener("click", () => {
     if (sendingRemote) return;
     if (!provider || !id) {
       showSendStatus(
-        "尚未选择有效的自动总结方式。请点击上方 API 自动总结或使用 Work/Codex 套餐额度，重新准备内容。",
+        "请先点击 API 自动总结或使用 Work/Codex 套餐额度准备摘要。",
       );
       return;
     }
@@ -744,59 +933,74 @@ els.handoverSendConfirm.addEventListener("click", () => {
       showSendStatus("请输入 50～50000 字的待总结文本。");
       return;
     }
-    // Click is explicit consent; send ONLY the user-visible, editable text.
     sendingRemote = true;
     els.handoverSendConfirm.disabled = true;
-    const seq = handoverGeneration;
-    showSendStatus("正在检查本机服务和授权状态…");
+    const format = preparedSummaryFormat;
+    const selectedModel = els.handoverModel.value;
+    const original = captureHandover();
+    let proposedJobId: string | null = null;
+    saveVisibleHandover();
+    showSendStatus("正在向本机服务提交任务，完成后切回原聊天即可恢复。");
     try {
       const status = await callCompanion<CompanionStatus>("/status");
-      const missingCredential = automaticSummaryPreflight(provider, status);
-      if (missingCredential) throw new Error(missingCredential);
-      if (seq !== handoverGeneration || handoverScopeId !== id) return;
-      showSendStatus(
-        "AI 正在生成交接摘要（不会自动发送到聊天窗口），请勿切换当前聊天。",
-      );
-      const selectedModel = els.handoverModel.value;
-      const result = await callCompanion<CompanionResult>("/summarize", {
+      const missing = automaticSummaryPreflight(provider, status);
+      if (missing) throw new Error(missing);
+      // Store the ID BEFORE making a possibly billable HTTP request. On a
+      // disconnected panel, restore can query this ID without resubmitting.
+      proposedJobId = crypto.randomUUID();
+      commitHandover(id, {
+        ...original,
+        jobId: proposedJobId,
+        format,
+        remote: null,
+        status: "正在提交 AI 总结任务。可切换网页，进度属于原聊天。",
+        sendStatus: "任务编号已保存在浏览器临时会话中。",
+        updatedAt: Date.now(),
+      });
+      await handoverWrites.get(id);
+      const start = await callCompanion<{
+        ok: true;
+        id: string;
+        state: string;
+      }>("/jobs", {
         provider,
         model: selectedModel,
         prompt,
+        jobId: proposedJobId,
       });
-      if (seq !== handoverGeneration || handoverScopeId !== id) return;
-      const [active] = await browser.tabs.query({
-        active: true,
-        currentWindow: true,
+      if (start.id !== proposedJobId)
+        throw new Error("服务返回了不同的任务编号");
+      const current = handoverByChat.get(id) ?? original;
+      commitHandover(id, {
+        ...current,
+        jobId: proposedJobId,
+        format,
+        remote: null,
+        status: "AI 正在生成摘要。可切换网页，回原聊天自动显示结果。",
+        sendStatus: "任务已由本机服务接收；关闭侧边栏也不会取消已提交的任务。",
+        updatedAt: Date.now(),
       });
-      const adapter = ADAPTERS.find((a) => a.platformId === "chatgpt");
-      if (!active?.url || adapter?.dialogueIdFromUrl?.(active.url) !== id) {
-        throw new Error("总结期间切换了聊天窗口，请回原窗口重新生成");
-      }
-      const normalized = normalizeHandoverResult(
-        result.summary,
-        preparedSummaryFormat,
-      );
-      els.handoverText.value = normalized.text;
-      els.handoverCopy.textContent = "复制交接摘要（用于新聊天）";
-      els.handoverSendConfirm.hidden = true;
-      preparedRemote = null;
-      isAiHandoverPrompt = false;
-      showSendStatus(
-        normalized.warning ??
-          "交接摘要已生成，未发送到任何聊天窗口。请核对内容，点击复制后手动粘贴到新聊天。",
-      );
-      els.handoverStatus.textContent =
-        "已生成摘要（" +
-        result.model +
-        "，" +
-        (provider === "api"
-          ? "按 API 用量计费"
-          : "按 ChatGPT Work/Codex 套餐用量计入") +
-        "）。请核对所有重要结论，尤其是任务完成状态，然后复制到新窗口。";
+      void pollSummaryJob(id, proposedJobId);
     } catch (error) {
-      if (seq === handoverGeneration && handoverScopeId === id) {
-        showSendStatus("自动总结失败：" + remoteError(error));
-        els.handoverStatus.textContent = "自动总结失败：" + remoteError(error);
+      if (proposedJobId) {
+        const current = handoverByChat.get(id) ?? original;
+        commitHandover(id, {
+          ...current,
+          remote: null,
+          jobId: proposedJobId,
+          status: "任务提交状态尚不明确：" + remoteError(error),
+          sendStatus: "将先根据任务编号查询是否已接收；不要重复点击生成。",
+          updatedAt: Date.now(),
+        });
+        void pollSummaryJob(id, proposedJobId);
+      } else {
+        commitHandover(id, {
+          ...original,
+          remote: provider,
+          status: "提交失败：" + remoteError(error),
+          sendStatus: "请检查本机服务或授权状态，修正后可重试。",
+          updatedAt: Date.now(),
+        });
       }
     } finally {
       sendingRemote = false;

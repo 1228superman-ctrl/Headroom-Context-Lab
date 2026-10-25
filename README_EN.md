@@ -48,3 +48,10 @@ Companion selftests live in `companion/selftest*.mjs`. Automated test success do
 ## Attribution
 
 Independent Apache-2.0 derivative of [ZM-BAD/headroom](https://github.com/ZM-BAD/headroom). Upstream copyrights and the full license are retained. See [NOTICE](NOTICE.md).
+
+## v0.6.10 - Recoverable handovers
+- Chat-switch-safe drafts and model outputs, kept per conversation ID in browser.storage.session (cleared after browser restart; six-hour restore window).
+- Automatic AI summaries run in the optional localhost helper, even when the side panel closes; job results remain in helper process memory for one hour.
+- Client-generated idempotent job IDs avoid repeated billable requests when the original response is lost.
+- Return to the original ChatGPT conversation to recover draft/output; no automatic posting, no permanent conversation archive.
+- New QA includes chat isolation/expiry unit tests and async-job input validation. Automatic summarization still requires explicit review and confirmation.

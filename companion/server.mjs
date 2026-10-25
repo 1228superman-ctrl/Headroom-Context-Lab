@@ -1,5 +1,6 @@
 ﻿/* global URL, console, process, Buffer */
 import http from "node:http";
+import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import {
@@ -24,6 +25,16 @@ import {
 } from "./origin-security.mjs";
 
 let activeJob = false;
+// Only the explicit, already approved AI request is queued. Results stay in
+// this user's localhost process memory for up to one hour, not on disk.
+const handoverJobs = new Map();
+const JOB_TTL_MS = 60 * 60 * 1000;
+function cleanHandoverJobs() {
+  const now = Date.now();
+  for (const [id, job] of handoverJobs) {
+    if (now - job.createdAt > JOB_TTL_MS) handoverJobs.delete(id);
+  }
+}
 let lastAuthFailure = null;
 function htmlSafe(value) {
   return String(value).replace(
@@ -138,9 +149,106 @@ async function handle(req, res) {
         acceptedOrigin,
       );
     }
+    // Polling remains safe after the side panel is closed. Invalid or unknown
+    // IDs must never reveal another user's data.
+    const jobMatch = /^\/jobs\/([0-9a-f-]{36})$/.exec(url.pathname);
+    if (req.method === "GET" && jobMatch) {
+      cleanHandoverJobs();
+      const job = handoverJobs.get(jobMatch[1]);
+      return json(
+        res,
+        job ? 200 : 404,
+        job
+          ? { ok: true, ...job }
+          : { error: "Summary job not found or expired" },
+        acceptedOrigin,
+      );
+    }
     if (req.method !== "POST")
       return json(res, 404, { error: "Not found" }, acceptedOrigin);
     const body = await readJson(req);
+    if (url.pathname === "/jobs") {
+      cleanHandoverJobs();
+      // The client saves its opaque ID before sending. A lost HTTP response
+      // can be recovered without creating a second paid inference request.
+      if (
+        body.jobId !== undefined &&
+        (typeof body.jobId !== "string" || !/^[0-9a-f-]{36}$/.test(body.jobId))
+      )
+        return json(
+          res,
+          400,
+          { error: "Invalid summary job ID" },
+          acceptedOrigin,
+        );
+      const id = body.jobId || randomUUID();
+      const existing = handoverJobs.get(id);
+      if (existing)
+        return json(
+          res,
+          202,
+          { ok: true, id, state: existing.state },
+          acceptedOrigin,
+        );
+      if (activeJob)
+        return json(
+          res,
+          409,
+          { error: "已有一个 AI 总结任务正在进行，请返回原聊天查看结果" },
+          acceptedOrigin,
+        );
+      if (
+        !["api", "plan"].includes(body.provider) ||
+        !MODELS.includes(body.model)
+      )
+        return json(
+          res,
+          400,
+          { error: "Unsupported AI provider or model" },
+          acceptedOrigin,
+        );
+      if (
+        typeof body.prompt !== "string" ||
+        body.prompt.length < 50 ||
+        body.prompt.length > 50000
+      )
+        return json(
+          res,
+          400,
+          { error: "Summary text length is invalid" },
+          acceptedOrigin,
+        );
+      // Check account capability BEFORE marking a job active or charging usage.
+      const token =
+        body.provider === "api" ? await loadSecret("api") : await accessToken();
+      if (!token)
+        return json(
+          res,
+          400,
+          { error: "缺少 API Key 或 ChatGPT 套餐授权" },
+          acceptedOrigin,
+        );
+      const createdAt = Date.now();
+      const base = { createdAt, provider: body.provider, model: body.model };
+      handoverJobs.set(id, { ...base, state: "running" });
+      activeJob = true;
+      // No dependency on the initiating HTTP connection or the side panel.
+      void (async () => {
+        try {
+          const result = await summarize(token, body.prompt, body.model);
+          handoverJobs.set(id, { ...base, state: "done", ...result });
+        } catch (error) {
+          handoverJobs.set(id, {
+            ...base,
+            state: "failed",
+            error: redactError(error),
+          });
+        } finally {
+          activeJob = false;
+        }
+      })();
+      return json(res, 202, { ok: true, id, state: "running" }, acceptedOrigin);
+    }
     if (url.pathname === "/api-key") {
       if (
         typeof body.key !== "string" ||

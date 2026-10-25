@@ -46,7 +46,33 @@ try {
     }),
   });
   assert.equal(missing.status, 400);
-  console.log("Origin allowlist, CORS, request validation: PASS");
+  const safeHeaders = {
+    Origin: origin,
+    "X-Headroom-Extension": settings().extensionId,
+  };
+  const unknownJob = await fetch(base + "/jobs/" + "0".repeat(36), {
+    headers: safeHeaders,
+  });
+  assert.equal(unknownJob.status, 404);
+  const invalidId = await fetch(base + "/jobs", {
+    method: "POST",
+    headers: { ...safeHeaders, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      provider: "api",
+      model: "gpt-6.1-sol",
+      prompt: "X".repeat(200),
+      jobId: "invalid-id",
+    }),
+  });
+  assert.equal(invalidId.status, 400);
+  const rejectedOrigin = await fetch(base + "/jobs/" + "0".repeat(36), {
+    headers: {
+      Origin: "https://example.com",
+      "X-Headroom-Extension": settings().extensionId,
+    },
+  });
+  assert.equal(rejectedOrigin.status, 403);
+  console.log("Origin allowlist, CORS, async job validation: PASS");
 } finally {
   await new Promise((resolve) => server.close(resolve));
   if (!preexisting) fs.unlinkSync(loc);

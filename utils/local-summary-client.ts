@@ -26,7 +26,9 @@ export async function callCompanion<T>(
     | "/api-key/clear"
     | "/oauth/start"
     | "/oauth/disconnect"
-    | "/summarize",
+    | "/summarize"
+    | "/jobs"
+    | `/jobs/${string}`,
   payload?: Record<string, unknown>,
 ): Promise<T> {
   const extensionId = browser?.runtime?.id;

@@ -73,3 +73,10 @@ node companion/selftest-server.mjs
 本项目为衍生作品，不附带上游开发者认可或 OpenAI 认可。原始 Headroom 版权所有归其贡献者，项目保留完整 [Apache-2.0](LICENSE) 许可证及 [NOTICE](NOTICE.md) 署名信息。图标及上游原有资源沿用原许可要求；如进行商业重分发，请自行复核第三方素材许可。
 
 使用与安全问题请阅读 [SECURITY.md](SECURITY.md)。
+
+## v0.6.10 - Recoverable handovers
+- Chat-switch-safe drafts and model outputs, kept per conversation ID in browser.storage.session (cleared after browser restart; six-hour restore window).
+- Automatic AI summaries run in the optional localhost helper, even when the side panel closes; job results remain in helper process memory for one hour.
+- Client-generated idempotent job IDs avoid repeated billable requests when the original response is lost.
+- Return to the original ChatGPT conversation to recover draft/output; no automatic posting, no permanent conversation archive.
+- New QA includes chat isolation/expiry unit tests and async-job input validation. Automatic summarization still requires explicit review and confirmation.

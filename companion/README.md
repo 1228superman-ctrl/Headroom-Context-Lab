@@ -43,3 +43,10 @@ node companion/selftest-server.mjs
 ```
 
 这些是模拟与边界测试，不会代替真实账户授权与总结验收。官方接入文档：[Sign in with ChatGPT — open-source clients](https://developers.openai.com/siwc/token-sharing-open-source)。
+
+## v0.6.10 - Recoverable handovers
+- Chat-switch-safe drafts and model outputs, kept per conversation ID in browser.storage.session (cleared after browser restart; six-hour restore window).
+- Automatic AI summaries run in the optional localhost helper, even when the side panel closes; job results remain in helper process memory for one hour.
+- Client-generated idempotent job IDs avoid repeated billable requests when the original response is lost.
+- Return to the original ChatGPT conversation to recover draft/output; no automatic posting, no permanent conversation archive.
+- New QA includes chat isolation/expiry unit tests and async-job input validation. Automatic summarization still requires explicit review and confirmation.
