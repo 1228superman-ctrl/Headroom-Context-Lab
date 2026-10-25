@@ -1,0 +1,51 @@
+name: Publish v0.6.11 release packages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/publish-v0.6.11.yml
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    if: github.repository == '1228superman-ctrl/Headroom-Context-Lab' && github.event.head_commit.message == 'Publish v0.6.11 release packages'
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run test:run
+      - run: node scripts/check-publication.mjs
+      - run: npm run build:chrome
+      - name: Package and publish tested archives
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Path release -Force | Out-Null
+          Copy-Item LICENSE .output/chrome-mv3/LICENSE.txt -Force
+          Copy-Item NOTICE.md .output/chrome-mv3/NOTICE.md -Force
+          Compress-Archive -Path '.output/chrome-mv3/*' -DestinationPath 'release/Headroom-Context-Lab-Chrome-v0.6.11.zip' -CompressionLevel Optimal -Force
+          New-Item -ItemType Directory -Path release/companion-stage -Force | Out-Null
+          Copy-Item companion release/companion-stage/companion -Recurse -Force
+          Copy-Item LICENSE release/companion-stage/LICENSE.txt -Force
+          Copy-Item NOTICE.md release/companion-stage/NOTICE.md -Force
+          Compress-Archive -Path 'release/companion-stage/*' -DestinationPath 'release/Headroom-Context-Lab-Windows-Companion-v0.6.11.zip' -CompressionLevel Optimal -Force
+          Remove-Item release/companion-stage -Recurse -Force
+          gh release view v0.6.11 --repo "$env:GITHUB_REPOSITORY" --json id *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload v0.6.11 'release/Headroom-Context-Lab-Chrome-v0.6.11.zip' 'release/Headroom-Context-Lab-Windows-Companion-v0.6.11.zip' --repo "$env:GITHUB_REPOSITORY" --clobber
+          } else {
+            gh release create v0.6.11 'release/Headroom-Context-Lab-Chrome-v0.6.11.zip' 'release/Headroom-Context-Lab-Windows-Companion-v0.6.11.zip' --repo "$env:GITHUB_REPOSITORY" --target "$env:GITHUB_SHA" --title 'Headroom Context Lab v0.6.11' --notes-file RELEASE_NOTES_v0.6.11.md --prerelease
+          }
+          if ($LASTEXITCODE -ne 0) { throw 'GitHub Release publishing failed' }
