@@ -25,6 +25,16 @@ const data = {
 };
 
 describe("handover format and evidence rules", () => {
+  it("promotes recent user-confirmed outcomes and does not keep old tasks pending", () => {
+    for (const format of ["markdown", "json"] as const) {
+      const instructions = summaryFormatInstructions(format);
+      expect(instructions).toContain("最新用户确认");
+      expect(instructions).toContain("暂停发布");
+      expect(instructions).toContain("重复");
+      expect(instructions).toContain("隐私");
+      expect(instructions).toContain("下一步");
+    }
+  });
   it("chooses human-readable Markdown by default", () => {
     const prompt = summaryFormatInstructions("markdown");
     expect(prompt).toContain("当前项目状态");

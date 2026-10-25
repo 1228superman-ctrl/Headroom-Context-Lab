@@ -1148,3 +1148,175 @@ th.hd-round-cum {
 .hd-handover-send-status[hidden] {
   display: none;
 }
+
+/* Visible progress belongs to the source conversation, next to output.
+   A status is functional feedback, not an estimate of model progress. */
+.hd-handover-progress {
+  position: sticky;
+  top: 6px;
+  z-index: 2;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin: 10px 0;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 9px;
+  color: var(--fg);
+  background: var(--bg);
+  box-shadow: 0 2px 9px rgb(0 0 0 / 5%);
+}
+.hd-handover-progress[hidden] {
+  display: none;
+}
+.hd-progress-content {
+  flex: 1;
+  min-width: 0;
+}
+.hd-progress-content strong {
+  display: block;
+  font-size: 14px;
+  line-height: 1.4;
+}
+.hd-progress-content p {
+  margin: 3px 0 0;
+  line-height: 1.5;
+  font-size: 12px;
+  color: var(--fg-muted);
+  overflow-wrap: anywhere;
+}
+.hd-progress-spinner {
+  display: block;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: hd-spin 900ms linear infinite;
+}
+.hd-handover-progress[data-state="complete"] .hd-progress-spinner,
+.hd-handover-progress[data-state="warning"] .hd-progress-spinner {
+  animation: none;
+  border-color: var(--border);
+  border-top-color: var(--accent);
+}
+.hd-handover-progress[data-state="warning"] {
+  border-left-color: var(--red);
+}
+.hd-handover-progress[data-state="complete"] {
+  border-left-color: var(--green);
+}
+.hd-handover-send-status {
+  font-size: 13px;
+}
+@keyframes hd-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hd-progress-spinner {
+    animation: none;
+  }
+}
+
+/* A paused snapshot keeps the same DOM dimensions across browser tab changes. */
+.hd-handover-pause-note {
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  background: var(--bg-card);
+  color: var(--fg-muted);
+}
+.hd-handover-pause-note[hidden] {
+  display: none;
+}
+
+.hd-reminder-card {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.hd-reminder-card[hidden] {
+  display: none;
+}
+.hd-reminder-heading {
+  font-size: 14px;
+  font-weight: 650;
+}
+.hd-reminder-help {
+  font-size: 11px;
+  line-height: 1.5;
+  margin: 0;
+  color: var(--fg-muted);
+}
+.hd-reminder-current {
+  padding: 8px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  font-size: 13px;
+  line-height: 1.5;
+  font-weight: 600;
+}
+.hd-reminder-current[data-stage="3"] {
+  border-left: 4px solid #bf4b4b;
+}
+.hd-reminder-current[data-stage="2"] {
+  border-left: 4px solid #b08723;
+}
+.hd-reminder-current[data-stage="1"] {
+  border-left: 4px solid #587da6;
+}
+.hd-reminder-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+.hd-reminder-row input[type="number"] {
+  max-width: 112px;
+  min-width: 0;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+}
+.hd-reminder-row input[type="checkbox"] {
+  flex-shrink: 0;
+}
+.hd-reminder-triple {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+.hd-reminder-triple label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 11px;
+}
+.hd-reminder-triple input {
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+}
+.hd-reminder-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+#cg-reminder-setting-status {
+  font-size: 11px;
+}

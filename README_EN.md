@@ -1,3 +1,5 @@
+> **v0.6.11 update:** New configurable 70/85/95% history reference alerts, browser toolbar badge and optional system notifications. Badge now displays actual historical estimate / user reference (e.g. 231,239 / 200,000 ≈ **116%**), not the 95% threshold. This is not live model context usage.
+
 # Headroom Context Lab
 
 **Estimated historical chat tokens and handover summaries in a Chrome side panel** | [简体中文](README.md)

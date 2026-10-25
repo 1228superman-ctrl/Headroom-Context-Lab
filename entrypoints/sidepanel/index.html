@@ -197,6 +197,91 @@
           Token。
         </p>
         <section
+          id="chatgpt-reminder-card"
+          class="hd-card hd-reminder-card"
+          hidden
+        >
+          <div class="hd-reminder-heading">对话长度监控提醒</div>
+          <p class="hd-reminder-help">
+            依据<strong>历史累计 Token 估算</strong
+            >与您设定的参考量提醒；不代表模型实际上下文占用或剩余额度。
+          </p>
+          <div
+            class="hd-reminder-current"
+            id="cg-reminder-current"
+            role="status"
+            aria-live="polite"
+          >
+            正在读取统计…
+          </div>
+          <label class="hd-reminder-row"
+            >监控提醒
+            <input id="cg-reminder-enabled" type="checkbox" checked />
+          </label>
+          <label class="hd-reminder-row"
+            >参考历史量（Token）
+            <input
+              id="cg-reminder-reference"
+              type="number"
+              min="10000"
+              max="2000000"
+              step="10000"
+              value="200000"
+            />
+          </label>
+          <div class="hd-reminder-triple">
+            <label
+              >关注 %
+              <input
+                id="cg-reminder-one"
+                type="number"
+                min="1"
+                max="98"
+                value="70"
+            /></label>
+            <label
+              >整理 %
+              <input
+                id="cg-reminder-two"
+                type="number"
+                min="2"
+                max="99"
+                value="85"
+            /></label>
+            <label
+              >迁移 %
+              <input
+                id="cg-reminder-three"
+                type="number"
+                min="3"
+                max="100"
+                value="95"
+            /></label>
+          </div>
+          <label class="hd-reminder-row"
+            >弹出系统通知（可选）
+            <input id="cg-reminder-popup" type="checkbox" />
+          </label>
+          <div class="hd-reminder-actions">
+            <button
+              type="button"
+              class="hd-handover-button hd-handover-secondary"
+              id="cg-reminder-save"
+            >
+              保存提醒设置
+            </button>
+            <span
+              id="cg-reminder-setting-status"
+              role="status"
+              aria-live="polite"
+            ></span>
+          </div>
+          <p class="hd-reminder-help">
+            默认显示侧边栏提醒与工具栏角标。每个聊天每档只提醒一次；不读取真实模型容量。
+          </p>
+        </section>
+
+        <section
           class="hd-card hd-history-breakdown"
           id="chatgpt-summary"
           hidden
@@ -347,8 +432,25 @@
             role="status"
             aria-live="polite"
           ></p>
+          <div
+            id="handover-progress"
+            class="hd-handover-progress"
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+            hidden
+          >
+            <span class="hd-progress-spinner" aria-hidden="true"></span>
+            <div class="hd-progress-content">
+              <strong id="handover-progress-title"></strong>
+              <p id="handover-progress-detail"></p>
+            </div>
+          </div>
           <div id="handover-editor" hidden>
-            <label for="handover-text" class="hd-handover-label"
+            <label
+              for="handover-text"
+              id="handover-text-label"
+              class="hd-handover-label"
               >请核对内容，删除不需要迁移的信息</label
             >
             <textarea

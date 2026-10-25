@@ -1,4 +1,4 @@
-﻿import type {
+import type {
   HeadroomMessage,
   HistoryParsedMessage,
   UsageState,
@@ -36,6 +36,17 @@ import {
   selectZombieKeys,
 } from "../utils/upstash";
 import { getSettings, type Settings } from "../utils/settings";
+import {
+  CHAT_REMINDERS_KEY,
+  DEFAULT_CHAT_REMINDERS,
+  safeReminderConfig,
+  reminderStage,
+  reminderBadge,
+  reminderDedupKey,
+  shouldNotifyStage,
+  REMINDER_TITLES,
+  type ReminderConfig,
+} from "../utils/chatgpt-reminders";
 import { adapterForUrl, isSupportedPlatformUrl } from "../utils/match-host";
 import { isCurrentConversation } from "../utils/conversation-identity";
 import { shouldMergeCloudRounds } from "../utils/history-merge-policy";
@@ -290,7 +301,53 @@ async function evictLocalCacheIfNeeded(): Promise<void> {
   await setConvIndex(index);
 }
 
+/** Monitor only active ChatGPT conversation history, not model context.
+ * Browser badge + optional notification work without an open side panel.
+ * Never include private conversation text in notifications.
+ */
+async function updateChatReminders(state: UsageState): Promise<void> {
+  if (state.platformId !== "chatgpt" || !state.dialogueId) {
+    await browser.action.setBadgeText({ text: "" }).catch(() => {});
+    return;
+  }
+  const stored = await browser.storage.local.get(CHAT_REMINDERS_KEY);
+  const config: ReminderConfig = safeReminderConfig(
+    stored[CHAT_REMINDERS_KEY] ?? DEFAULT_CHAT_REMINDERS,
+  );
+  const stage = reminderStage(state.totalTokens, config);
+  const badge = reminderBadge(state.totalTokens, config);
+  await browser.action.setBadgeText({ text: badge }).catch(() => {});
+  if (stage) {
+    await browser.action
+      .setBadgeBackgroundColor({
+        color: stage >= 3 ? "#ac4343" : stage === 2 ? "#9b7419" : "#547994",
+      })
+      .catch(() => {});
+  }
+  if (!stage || !config.browserNotifications) return;
+  const key = reminderDedupKey(state.dialogueId, config);
+  const previous = await browser.storage.local.get(key);
+  const last = Number(previous[key]) || 0;
+  if (!shouldNotifyStage(last, stage)) return;
+  // Persist before creating the notification to prevent duplicate alerts
+  // across service-worker restarts or repeated history refreshes.
+  await browser.storage.local.set({ [key]: stage });
+  const ratio = ((state.totalTokens / config.referenceTokens) * 100).toFixed(1);
+  await browser.notifications
+    .create("headroom-reminder-" + Date.now(), {
+      type: "basic",
+      iconUrl: browser.runtime.getURL("/icon/128-gray.png"),
+      title: "Headroom · " + REMINDER_TITLES[stage],
+      message:
+        "当前聊天历史累计估算约为参考量的 " +
+        ratio +
+        "%。仅为历史参考，不代表实际模型上下文占用。",
+    })
+    .catch(() => {});
+}
+
 async function broadcast(state: UsageState): Promise<void> {
+  void updateChatReminders(state).catch(() => {});
   await browser.runtime
     .sendMessage({ type: "STATE_UPDATE", state } satisfies HeadroomMessage)
     .catch(() => {
@@ -444,6 +501,13 @@ export default defineBackground(() => {
     if (import.meta.env.DEV) console.log(...args);
   };
   void initSidePanel();
+  browser.storage.onChanged.addListener((changes, area) => {
+    if (area === "local" && changes[CHAT_REMINDERS_KEY]) {
+      void getActiveTabState()
+        .then(updateChatReminders)
+        .catch(() => {});
+    }
+  });
 
   // ── Zombie cleanup alarm (spec 003) ─────────────────────────────────
   // 1-hour periodic alarm iterates all platforms; for each that has an open
@@ -660,10 +724,13 @@ export default defineBackground(() => {
           await projectForTab(message.url, sender?.tab?.id);
           return;
         }
-        case "GET_STATE":
+        case "GET_STATE": {
           // The panel is asking — derive from the active tab and return (no
           // broadcast: the panel renders the response directly).
-          return await getActiveTabState();
+          const current = await getActiveTabState();
+          void updateChatReminders(current).catch(() => {});
+          return current;
+        }
         case "HISTORY_PARSED":
           dbg(
             `[Headroom|BG] ← HISTORY_PARSED platform=${message.platformId} rounds=${message.rounds.length} tabActive=${await isTabActive(sender?.tab?.id)}`,

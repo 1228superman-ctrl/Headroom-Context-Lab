@@ -10,6 +10,24 @@ import {
   restorableHandover,
   isSourceChat,
 } from "../../utils/handover-session";
+import {
+  scrollStorageKey,
+  validScrollY,
+  shouldRecordScroll,
+} from "../../utils/handover-scroll";
+import {
+  withContentReceiverRecovery,
+  isMissingContentReceiver,
+} from "../../utils/content-script-recovery";
+import {
+  CHAT_REMINDERS_KEY,
+  DEFAULT_CHAT_REMINDERS,
+  safeReminderConfig,
+  reminderStage,
+  referenceRatio,
+  REMINDER_TITLES,
+  type ReminderConfig,
+} from "../../utils/chatgpt-reminders";
 import { automaticSummaryPreflight } from "../../utils/summary-preflight";
 import {
   normalizeHandoverResult,
@@ -130,6 +148,24 @@ const els = {
   tokenSep: document.querySelector<HTMLElement>("#token-sep")!,
   tokensUnit: document.querySelector<HTMLElement>("#tokens-unit")!,
   chatgptSummary: document.querySelector<HTMLElement>("#chatgpt-summary")!,
+  reminderCard: document.querySelector<HTMLElement>("#chatgpt-reminder-card")!,
+  reminderCurrent: document.querySelector<HTMLElement>("#cg-reminder-current")!,
+  reminderEnabled: document.querySelector<HTMLInputElement>(
+    "#cg-reminder-enabled",
+  )!,
+  reminderReference: document.querySelector<HTMLInputElement>(
+    "#cg-reminder-reference",
+  )!,
+  reminderOne: document.querySelector<HTMLInputElement>("#cg-reminder-one")!,
+  reminderTwo: document.querySelector<HTMLInputElement>("#cg-reminder-two")!,
+  reminderThree:
+    document.querySelector<HTMLInputElement>("#cg-reminder-three")!,
+  reminderPopup:
+    document.querySelector<HTMLInputElement>("#cg-reminder-popup")!,
+  reminderSave: document.querySelector<HTMLButtonElement>("#cg-reminder-save")!,
+  reminderSettingStatus: document.querySelector<HTMLElement>(
+    "#cg-reminder-setting-status",
+  )!,
   chatgptToolTokens: document.querySelector<HTMLElement>("#cg-tool-tokens")!,
   chatgptToolShare: document.querySelector<HTMLElement>("#cg-tool-share")!,
   chatgptToolRounds: document.querySelector<HTMLElement>("#cg-tool-rounds")!,
@@ -174,6 +210,9 @@ const els = {
   handoverStatus: document.querySelector<HTMLElement>("#handover-status")!,
   handoverEditor: document.querySelector<HTMLElement>("#handover-editor")!,
   handoverText: document.querySelector<HTMLTextAreaElement>("#handover-text")!,
+  handoverTextLabel: document.querySelector<HTMLElement>(
+    "#handover-text-label",
+  )!,
   handoverFormat:
     document.querySelector<HTMLSelectElement>("#handover-format")!,
   handoverCopy: document.querySelector<HTMLButtonElement>("#handover-copy")!,
@@ -209,6 +248,13 @@ const els = {
   )!,
   handoverSendStatus: document.querySelector<HTMLElement>(
     "#handover-send-status",
+  )!,
+  handoverProgress: document.querySelector<HTMLElement>("#handover-progress")!,
+  handoverProgressTitle: document.querySelector<HTMLElement>(
+    "#handover-progress-title",
+  )!,
+  handoverProgressDetail: document.querySelector<HTMLElement>(
+    "#handover-progress-detail",
   )!,
 };
 
@@ -297,7 +343,133 @@ function formatContext(limit: number): string {
   return `${Math.round(limit / 1024)}K ${suffix}`;
 }
 
+// Keep the side panel's last ChatGPT view mounted while another website is
+// active. Destroying the section collapsed the document and zeroed scrollY.
+const viewPausedNote = document.createElement("div");
+viewPausedNote.className = "hd-handover-pause-note";
+viewPausedNote.hidden = true;
+viewPausedNote.setAttribute("role", "status");
+viewPausedNote.textContent =
+  "当前已切换到其他网页。交接草稿与生成状态仍保留，返回原 ChatGPT 聊天后继续。";
+els.handoverSection.parentElement?.insertBefore(
+  viewPausedNote,
+  els.handoverSection,
+);
+const activeDraftReads = new Set<string>();
+function freezeChatView(): void {
+  viewPausedNote.hidden = false;
+  els.handoverGenerate.disabled = true;
+  els.handoverAiGenerate.disabled = true;
+  els.handoverApiPrepare.disabled = true;
+  els.handoverPlanPrepare.disabled = true;
+  els.handoverSendConfirm.disabled = true;
+  // Keep the previous DOM height, scroll position, and pending state intact.
+}
+function unfreezeChatView(id: string): void {
+  viewPausedNote.hidden = true;
+  const hasRemote = !!handoverByChat.get(id)?.jobId;
+  const busy = hasRemote || activeDraftReads.has(id);
+  els.handoverGenerate.disabled = busy;
+  els.handoverAiGenerate.disabled = busy;
+  els.handoverApiPrepare.disabled = busy;
+  els.handoverPlanPrepare.disabled = busy;
+  els.handoverSendConfirm.disabled = busy;
+}
+let reminderConfig: ReminderConfig = {
+  ...DEFAULT_CHAT_REMINDERS,
+  stages: [...DEFAULT_CHAT_REMINDERS.stages],
+};
+function renderReminder(state: UsageState): void {
+  const active = state.platformId === "chatgpt";
+  els.reminderCard.hidden = !active;
+  if (!active) return;
+  const stage = reminderStage(state.totalTokens, reminderConfig);
+  const ratio = referenceRatio(state.totalTokens, reminderConfig);
+  els.reminderCurrent.dataset.stage = String(stage);
+  els.reminderCurrent.textContent = !reminderConfig.enabled
+    ? "历史估算提醒已关闭"
+    : stage === 0
+      ? `历史累计 / 自定义参考量：${ratio.toFixed(1)}% · 未达到关注阈值`
+      : ratio > 100
+        ? `历史累计 / 自定义参考量：${ratio.toFixed(1)}% · 已超过参考量 · ${REMINDER_TITLES[stage]}`
+        : `历史累计 / 自定义参考量：${ratio.toFixed(1)}% · ${REMINDER_TITLES[stage]}`;
+}
+function adoptReminderConfig(value: ReminderConfig): void {
+  reminderConfig = value;
+  els.reminderEnabled.checked = value.enabled;
+  els.reminderReference.value = String(value.referenceTokens);
+  els.reminderOne.value = String(value.stages[0]);
+  els.reminderTwo.value = String(value.stages[1]);
+  els.reminderThree.value = String(value.stages[2]);
+  els.reminderPopup.checked = value.browserNotifications;
+  renderReminder(currentState);
+}
+els.reminderSave.addEventListener("click", () => {
+  void (async () => {
+    const referenceTokens = Number(els.reminderReference.value);
+    const stages = [
+      Number(els.reminderOne.value),
+      Number(els.reminderTwo.value),
+      Number(els.reminderThree.value),
+    ];
+    if (
+      !Number.isInteger(referenceTokens) ||
+      referenceTokens < 10000 ||
+      referenceTokens > 2000000 ||
+      stages.some((v) => !Number.isInteger(v)) ||
+      !(
+        (stages[0] ?? 0) >= 1 &&
+        (stages[0] ?? 0) < (stages[1] ?? 0) &&
+        (stages[1] ?? 0) < (stages[2] ?? 0) &&
+        (stages[2] ?? 999) <= 100
+      )
+    ) {
+      els.reminderSettingStatus.textContent =
+        "请检查参考量（1万～200万）和递增百分比";
+      return;
+    }
+    const chosen = safeReminderConfig({
+      enabled: els.reminderEnabled.checked,
+      browserNotifications: els.reminderPopup.checked,
+      referenceTokens,
+      stages,
+    });
+    await browser.storage.local.set({ [CHAT_REMINDERS_KEY]: chosen });
+    adoptReminderConfig(chosen);
+    els.reminderSettingStatus.textContent = "设置已保存";
+  })().catch(() => {
+    els.reminderSettingStatus.textContent = "保存失败";
+  });
+});
+void browser.storage.local
+  .get(CHAT_REMINDERS_KEY)
+  .then((data) => {
+    adoptReminderConfig(safeReminderConfig(data[CHAT_REMINDERS_KEY]));
+  })
+  .catch(() => {});
+browser.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && changes[CHAT_REMINDERS_KEY])
+    adoptReminderConfig(
+      safeReminderConfig(changes[CHAT_REMINDERS_KEY].newValue),
+    );
+});
+
 function render(state: UsageState, th: Thresholds): void {
+  // Unsupported tabs must not hide the chat's long handover section.
+  // The active page still changes; the visible view is explicitly marked
+  // as a paused snapshot, not misleadingly labeled a live measurement.
+  if (handoverScopeId && state.platformId !== "chatgpt") {
+    freezeChatView();
+    return;
+  }
+  if (
+    handoverScopeId &&
+    state.platformId === "chatgpt" &&
+    state.dialogueId === handoverScopeId
+  ) {
+    unfreezeChatView(handoverScopeId);
+  }
+  const lastChatId = handoverScopeId;
   const limit = state.contextLimit ?? 0;
   const used = state.totalTokens;
   const ratio = limit > 0 ? used / limit : 0;
@@ -327,6 +499,7 @@ function render(state: UsageState, th: Thresholds): void {
   els.usageBar.hidden = isChatGpt;
   els.usageHelp.hidden = !isChatGpt;
   els.chatgptSummary.hidden = !isChatGpt;
+  renderReminder(state);
   els.tokenSep.hidden = isChatGpt;
   els.tokenLimit.hidden = isChatGpt;
   els.tokensUnit.hidden = isChatGpt;
@@ -380,6 +553,12 @@ function render(state: UsageState, th: Thresholds): void {
   renderRounds(state.rounds);
   syncRefreshScope(state);
   syncHandoverScope(state);
+  // Even with the same chat ID, a table re-render can collapse the scroll
+  // height. Restore after every redraw, not only when the chat ID changes.
+  const nextChatId = state.platformId === "chatgpt" ? state.dialogueId : null;
+  if (nextChatId && nextChatId === lastChatId && scrollByChat.has(nextChatId)) {
+    restoreChatScroll(nextChatId);
+  }
 }
 
 // Background updates remain event-driven. This button explicitly re-reads the
@@ -496,10 +675,210 @@ type SavedHandover = {
   isAiPrompt: boolean;
   updatedAt: number;
   jobId?: string;
+  editorScrollTop?: number;
 };
 
 const handoverByChat = new Map<string, SavedHandover>();
 const activePollers = new Set<string>();
+const scrollByChat = new Map<string, number>();
+let restoringScroll = false;
+let scrollRestoreSequence = 0;
+let pendingScrollSave: ReturnType<typeof setTimeout> | undefined;
+// Browser-driven layout clamping can emit scroll events during a tab switch.
+// Only a recent, explicit input gesture is permitted to change the saved y.
+let lastUserScrollIntentAt = 0;
+function markUserScrollIntent(): void {
+  lastUserScrollIntentAt = Date.now();
+}
+function hasRecentUserScrollIntent(now = Date.now()): boolean {
+  return now - lastUserScrollIntentAt < 1800;
+}
+
+/** The side panel scrolls its HTML root, not #app or the summary textarea. */
+function panelScroller(): Element {
+  return document.scrollingElement ?? document.documentElement;
+}
+function panelScrollPosition(): number {
+  return Math.max(0, Math.round(panelScroller().scrollTop));
+}
+function persistChatScroll(id: string, y: number): void {
+  void browser.storage.session
+    .set({ [scrollStorageKey(id)]: y })
+    .catch(() => {});
+}
+/** Keep the last real scroll point when a tab change collapses the panel's DOM. */
+function captureVisibleScroll(): void {
+  if (
+    restoringScroll ||
+    !handoverScopeId ||
+    els.handoverSection.hidden ||
+    !hasRecentUserScrollIntent()
+  )
+    return;
+  const element = panelScroller();
+  const position = panelScrollPosition();
+  const max = Math.max(0, element.scrollHeight - element.clientHeight);
+  const previous = scrollByChat.get(handoverScopeId);
+  if (!shouldRecordScroll(previous, position, max)) return;
+  scrollByChat.set(handoverScopeId, position);
+}
+
+// Mark real gestures BEFORE scroll events fire. Ctrl+Tab/Alt+Tab is not a
+// scroll gesture; switching browser tabs must never overwrite the last y.
+window.addEventListener("wheel", markUserScrollIntent, { passive: true });
+window.addEventListener("touchstart", markUserScrollIntent, { passive: true });
+window.addEventListener("pointerdown", markUserScrollIntent, { passive: true });
+window.addEventListener(
+  "pointermove",
+  (event) => {
+    if (event.buttons & 1) markUserScrollIntent();
+  },
+  { passive: true },
+);
+window.addEventListener(
+  "keydown",
+  (event) => {
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
+    if (
+      [
+        "ArrowUp",
+        "ArrowDown",
+        "PageUp",
+        "PageDown",
+        "Home",
+        "End",
+        " ",
+      ].includes(event.key)
+    )
+      markUserScrollIntent();
+  },
+  { passive: true },
+);
+
+// Flush the last position if Chromium suspends this panel during a tab change.
+function flushCurrentScroll(): void {
+  if (handoverScopeId) {
+    const lastY = scrollByChat.get(handoverScopeId);
+    if (lastY !== undefined) persistChatScroll(handoverScopeId, lastY);
+  }
+}
+window.addEventListener("pagehide", flushCurrentScroll);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") flushCurrentScroll();
+});
+
+window.addEventListener(
+  "scroll",
+  () => {
+    if (restoringScroll || !handoverScopeId || els.handoverSection.hidden)
+      return;
+    captureVisibleScroll();
+    if (pendingScrollSave) clearTimeout(pendingScrollSave);
+    const id = handoverScopeId;
+    pendingScrollSave = setTimeout(() => {
+      const y = scrollByChat.get(id);
+      if (y !== undefined) persistChatScroll(id, y);
+    }, 180);
+  },
+  { passive: true },
+);
+
+/** Do not pull the panel back down if its user has resumed manual scrolling. */
+for (const kind of ["wheel", "touchstart", "pointerdown", "keydown"] as const) {
+  window.addEventListener(
+    kind,
+    () => {
+      if (!restoringScroll) return;
+      scrollRestoreSequence++;
+      restoringScroll = false;
+    },
+    { passive: true },
+  );
+}
+
+function restoreChatScroll(id: string): void {
+  const ticket = ++scrollRestoreSequence;
+  restoringScroll = true;
+  const release = () => {
+    if (ticket === scrollRestoreSequence) restoringScroll = false;
+  };
+  const apply = (pos: number): void => {
+    if (handoverScopeId !== id || ticket !== scrollRestoreSequence) {
+      release();
+      return;
+    }
+    // Repainting the rounds table briefly reduces scrollHeight. Retry until
+    // it grows back, rather than letting the browser clamp the desired y to 0.
+    let attempts = 0;
+    const step = (): void => {
+      if (handoverScopeId !== id || ticket !== scrollRestoreSequence) {
+        release();
+        return;
+      }
+      const scroller = panelScroller();
+      const maximum = Math.max(
+        0,
+        scroller.scrollHeight - scroller.clientHeight,
+      );
+      scroller.scrollTop = Math.min(pos, maximum);
+      attempts++;
+      if (maximum + 2 >= pos || attempts >= 40) {
+        // One more post-layout check protects against a late STATE_UPDATE.
+        setTimeout(() => {
+          if (ticket === scrollRestoreSequence && handoverScopeId === id) {
+            const root = panelScroller();
+            if (
+              Math.abs(
+                root.scrollTop -
+                  Math.min(
+                    pos,
+                    Math.max(0, root.scrollHeight - root.clientHeight),
+                  ),
+              ) > 3
+            ) {
+              root.scrollTop = Math.min(
+                pos,
+                Math.max(0, root.scrollHeight - root.clientHeight),
+              );
+            }
+          }
+          release();
+        }, 120);
+        return;
+      }
+      setTimeout(step, 75);
+    };
+    requestAnimationFrame(() => requestAnimationFrame(step));
+  };
+  const known = scrollByChat.get(id);
+  if (known !== undefined) {
+    apply(known);
+    return;
+  }
+  void browser.storage.session
+    .get(scrollStorageKey(id))
+    .then((data) => {
+      if (ticket !== scrollRestoreSequence) return;
+      const value = data[scrollStorageKey(id)];
+      if (validScrollY(value)) {
+        scrollByChat.set(id, value);
+        apply(value);
+      } else {
+        release();
+      }
+    })
+    .catch(release);
+}
+function showProgress(
+  state: "running" | "complete" | "warning" | "idle",
+  title: string,
+  detail = "",
+): void {
+  els.handoverProgress.hidden = state === "idle";
+  els.handoverProgress.dataset.state = state;
+  els.handoverProgressTitle.textContent = title;
+  els.handoverProgressDetail.textContent = detail;
+}
 // Serialize session writes so a late, smaller draft does not overwrite a
 // newer finished result, and an explicit clear cannot race with regeneration.
 const handoverWrites = new Map<string, Promise<void>>();
@@ -521,6 +900,7 @@ function captureHandover(): SavedHandover {
     format: preparedSummaryFormat,
     isAiPrompt: isAiHandoverPrompt,
     updatedAt: Date.now(),
+    editorScrollTop: els.handoverText.scrollTop,
   };
 }
 
@@ -534,12 +914,44 @@ function storeHandover(id: string, value: SavedHandover): void {
 function showHandover(value: SavedHandover): void {
   els.handoverText.value = value.text;
   els.handoverEditor.hidden = false;
+  els.handoverText.scrollTop = value.editorScrollTop ?? 0;
+  els.handoverFormat.value = value.format;
   els.handoverStatus.textContent = value.status;
   els.handoverCopy.textContent = value.copyLabel;
   preparedRemote = value.remote;
   preparedSummaryFormat = value.format;
   isAiHandoverPrompt = value.isAiPrompt;
-  els.handoverSendConfirm.hidden = !value.remote || !!value.jobId;
+  const running = !!value.jobId;
+  els.handoverTextLabel.textContent = running
+    ? "正在总结的原始输入（非摘要）"
+    : value.copyLabel.includes("交接摘要")
+      ? "交接摘要结果（可修改后复制）"
+      : value.remote
+        ? "待提交的总结材料（可检查和编辑）"
+        : "交接草稿（可编辑）";
+  els.handoverSendConfirm.hidden = !value.remote || running;
+  els.handoverGenerate.disabled = running;
+  els.handoverAiGenerate.disabled = running;
+  els.handoverApiPrepare.disabled = running;
+  els.handoverPlanPrepare.disabled = running;
+  els.handoverClear.disabled = running;
+  els.handoverCopy.textContent = running
+    ? "复制原始输入（非摘要）"
+    : value.copyLabel;
+  if (running && /查询失败|超时|未知|不明确/.test(value.status))
+    showProgress("warning", "任务状态尚未确认", value.status);
+  else if (running)
+    showProgress(
+      "running",
+      "AI 正在生成交接摘要",
+      value.status || "结果会在完成后自动恢复到原聊天。",
+    );
+  else if (value.status.includes("失败") || value.status.includes("错误"))
+    showProgress("warning", "处理遇到问题", value.status);
+  else if (value.copyLabel.includes("交接摘要"))
+    showProgress("complete", "交接摘要已生成，可以复制", value.status);
+  else if (value.remote) showProgress("idle", "");
+  else showProgress("idle", "");
   showSendStatus(value.sendStatus);
 }
 
@@ -557,6 +969,7 @@ function restoreHandover(id: string): void {
   if (cached) {
     showHandover(cached);
     if (cached.jobId) void pollSummaryJob(id, cached.jobId);
+    restoreChatScroll(id);
     return;
   }
   void browser.storage.session
@@ -565,7 +978,10 @@ function restoreHandover(id: string): void {
       const candidate = result[handoverKey(id)] as SavedHandover | undefined;
       if (!restorableHandover(candidate) || handoverByChat.has(id)) return;
       handoverByChat.set(id, candidate);
-      if (isSourceChat(id, handoverScopeId)) showHandover(candidate);
+      if (isSourceChat(id, handoverScopeId)) {
+        showHandover(candidate);
+        restoreChatScroll(id);
+      }
       if (candidate.jobId) void pollSummaryJob(id, candidate.jobId);
     })
     .catch(() => {});
@@ -587,6 +1003,12 @@ function showSendStatus(text: string): void {
 }
 
 function clearHandoverEditor(): void {
+  showProgress("idle", "");
+  els.handoverGenerate.disabled = false;
+  els.handoverAiGenerate.disabled = false;
+  els.handoverApiPrepare.disabled = false;
+  els.handoverPlanPrepare.disabled = false;
+  els.handoverClear.disabled = false;
   showSendStatus("");
   preparedRemote = null;
   preparedSummaryFormat = "markdown";
@@ -602,13 +1024,20 @@ function syncHandoverScope(state: UsageState): void {
   const id = state.platformId === "chatgpt" ? state.dialogueId : null;
   els.handoverSection.hidden = !id;
   if (id === handoverScopeId) return;
+  if (handoverScopeId) {
+    const y = scrollByChat.get(handoverScopeId);
+    if (y !== undefined) persistChatScroll(handoverScopeId, y);
+  }
   saveVisibleHandover();
   handoverScopeId = id;
   // A tab switch must not invalidate a pending request for another chat.
   els.handoverGenerate.disabled = false;
   els.handoverAiGenerate.disabled = false;
   clearHandoverEditor();
-  if (id) restoreHandover(id);
+  if (id) {
+    restoreHandover(id);
+    restoreChatScroll(id);
+  }
 }
 
 function generateHandover(
@@ -619,8 +1048,18 @@ function generateHandover(
     const id =
       currentState.platformId === "chatgpt" ? currentState.dialogueId : null;
     if (!id) return;
+    if (handoverByChat.get(id)?.jobId) {
+      showProgress(
+        "running",
+        "AI 总结仍在进行",
+        "请不要重复提交或覆盖原任务，完成后即可复制。",
+      );
+      return;
+    }
     const seq = nextHandoverGeneration(id);
-    clearSavedHandover(id);
+    activeDraftReads.add(id);
+    // Keep any previously reviewed draft until the next one is successful.
+    const previousDraft = handoverByChat.get(id);
     const format: HandoverFormat =
       els.handoverFormat.value === "json" ? "json" : "markdown";
     clearHandoverEditor();
@@ -630,6 +1069,11 @@ function generateHandover(
     els.handoverGenerate.disabled = true;
     els.handoverAiGenerate.disabled = true;
     els.handoverStatus.textContent = "正在从当前聊天生成本地交接草稿…";
+    showProgress(
+      "running",
+      "正在读取聊天内容",
+      "提取内容后会出现在下方，可检查和复制。",
+    );
     try {
       const [active] = await browser.tabs.query({
         active: true,
@@ -643,12 +1087,27 @@ function generateHandover(
       )
         throw new Error("当前标签页不是所选聊天，请切回 ChatGPT 后重试");
 
-      const result = (await browser.tabs.sendMessage(active.id, {
-        type: "GET_HANDOVER_DRAFT",
+      const originalMessage = {
+        type: "GET_HANDOVER_DRAFT" as const,
         dialogueId: id,
         mode,
         format,
-      } satisfies HeadroomMessage)) as HandoverDraftResponse | undefined;
+      } satisfies HeadroomMessage;
+      const result = (await withContentReceiverRecovery(
+        () => browser.tabs.sendMessage(active.id!, originalMessage),
+        async () => {
+          // After an extension reload, open tabs may still hold an invalidated
+          // old content script. Reinstate only the already-declared matching
+          // extension content script, without reloading the user's chat.
+          const tab = await browser.tabs.get(active.id!);
+          if (!tab.url || chatgptAdapter?.dialogueIdFromUrl?.(tab.url) !== id)
+            throw new Error("聊天标签页已发生变化，请返回原聊天后重试");
+          await browser.scripting.executeScript({
+            target: { tabId: active.id! },
+            files: ["/content-scripts/platform.js"],
+          });
+        },
+      )) as HandoverDraftResponse | undefined;
 
       if (!currentHandoverGeneration(id, seq)) return;
       // The request belongs to active.id captured at its start. Tab changes
@@ -687,15 +1146,34 @@ function generateHandover(
       });
     } catch (err) {
       if (currentHandoverGeneration(id, seq)) {
+        const needsReconnect = isMissingContentReceiver(err);
+        const hint = needsReconnect
+          ? "网页连接未恢复。请在原 ChatGPT 标签页刷新一次，再点击生成；不必重新授权或安装。"
+          : "请确认网络和当前聊天状态后重试。之前的草稿不会被覆盖。";
         const message =
-          "生成失败：" +
+          "读取失败：" +
           (err instanceof Error ? err.message : "请刷新聊天重试");
-        if (handoverScopeId === id) els.handoverStatus.textContent = message;
+        if (previousDraft) {
+          commitHandover(id, {
+            ...previousDraft,
+            status: "新草稿生成失败，已恢复之前的内容。" + hint,
+            sendStatus: message,
+            updatedAt: Date.now(),
+          });
+        } else if (handoverScopeId === id) {
+          els.handoverStatus.textContent = message;
+        }
+        if (handoverScopeId === id)
+          showProgress("warning", "读取聊天失败", hint);
       }
     } finally {
-      if (currentHandoverGeneration(id, seq)) {
-        els.handoverGenerate.disabled = false;
-        els.handoverAiGenerate.disabled = false;
+      activeDraftReads.delete(id);
+      if (
+        currentHandoverGeneration(id, seq) &&
+        currentState.platformId === "chatgpt" &&
+        currentState.dialogueId === id
+      ) {
+        unfreezeChatView(id);
       }
     }
   })();
@@ -715,9 +1193,14 @@ els.handoverCopy.addEventListener("click", () => {
     }
     try {
       await navigator.clipboard.writeText(value);
-      els.handoverStatus.textContent = isAiHandoverPrompt
-        ? "已复制 AI 总结提示词，请手动粘贴给 ChatGPT。获得摘要后再复制到新工作窗口。"
-        : "已复制编辑后的草稿。请自行粘贴到新聊天。";
+      els.handoverStatus.textContent = handoverByChat.get(handoverScopeId ?? "")
+        ?.jobId
+        ? "已复制原始输入（不是生成的摘要），AI 仍在总结中。"
+        : els.handoverCopy.textContent.includes("交接摘要")
+          ? "已复制交接摘要，请手动粘贴到新聊天。"
+          : isAiHandoverPrompt
+            ? "已复制 AI 提示词，请手动粘贴给 ChatGPT。"
+            : "已复制编辑后的草稿，请手动粘贴到新聊天。";
     } catch {
       els.handoverText.focus();
       els.handoverText.select();
@@ -728,6 +1211,14 @@ els.handoverCopy.addEventListener("click", () => {
 });
 
 els.handoverClear.addEventListener("click", () => {
+  if (handoverScopeId && handoverByChat.get(handoverScopeId)?.jobId) {
+    showProgress(
+      "running",
+      "AI 仍在生成摘要",
+      "为防止丢失任务编号，完成前暂时不能清空。",
+    );
+    return;
+  }
   if (handoverScopeId) {
     nextHandoverGeneration(handoverScopeId);
     clearSavedHandover(handoverScopeId);
@@ -737,6 +1228,11 @@ els.handoverClear.addEventListener("click", () => {
   clearHandoverEditor();
 });
 els.handoverText.addEventListener("input", () => saveVisibleHandover());
+let pendingEditorScrollSave: ReturnType<typeof setTimeout> | undefined;
+els.handoverText.addEventListener("scroll", () => {
+  if (pendingEditorScrollSave) clearTimeout(pendingEditorScrollSave);
+  pendingEditorScrollSave = setTimeout(() => saveVisibleHandover(), 180);
+});
 
 // -------- Automatic summary: separate local companion, no browser-stored keys --------
 function remoteError(error: unknown): string {

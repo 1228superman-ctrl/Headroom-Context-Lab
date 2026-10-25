@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.11 — Monitoring reminders and accurate ratio (2026-10-25)
+- Toolbar percentage now shows true historical/reference ratio (116% in the reported case).
+- Adds configurable 70/85/95% reference alerts, optional system popups, and stage deduplication.
+- Carries forward locally verified sidebar stability, content-script recovery, and recoverable summary jobs.
+
+
 ## 0.6.10 — Recoverable handovers (2026-10-25)
 - Preserve per-chat handover drafts and results in browser session storage when switching tabs.
 - Run user-confirmed summaries as recoverable localhost jobs with idempotent request IDs.

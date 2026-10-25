@@ -31,14 +31,14 @@ jobs:
           New-Item -ItemType Directory -Path release -Force | Out-Null
           Copy-Item LICENSE .output/chrome-mv3/LICENSE.txt -Force
           Copy-Item NOTICE.md .output/chrome-mv3/NOTICE.md -Force
-          Compress-Archive -Path '.output/chrome-mv3/*' -DestinationPath 'release/Headroom-Context-Lab-Chrome-v0.6.10.zip' -CompressionLevel Optimal -Force
+          Compress-Archive -Path '.output/chrome-mv3/*' -DestinationPath 'release/Headroom-Context-Lab-Chrome-v0.6.11.zip' -CompressionLevel Optimal -Force
           New-Item -ItemType Directory -Path release/companion-stage -Force | Out-Null
           Copy-Item companion release/companion-stage/companion -Recurse -Force
           Copy-Item LICENSE release/companion-stage/LICENSE.txt -Force
           Copy-Item NOTICE.md release/companion-stage/NOTICE.md -Force
-          Compress-Archive -Path 'release/companion-stage/*' -DestinationPath 'release/Headroom-Context-Lab-Windows-Companion-v0.6.10.zip' -CompressionLevel Optimal -Force
+          Compress-Archive -Path 'release/companion-stage/*' -DestinationPath 'release/Headroom-Context-Lab-Windows-Companion-v0.6.11.zip' -CompressionLevel Optimal -Force
           Remove-Item release/companion-stage -Recurse -Force
-          if (!(Test-Path 'release/Headroom-Context-Lab-Chrome-v0.6.10.zip') -or !(Test-Path 'release/Headroom-Context-Lab-Windows-Companion-v0.6.10.zip')) { throw 'Release assets missing' }
+          if (!(Test-Path 'release/Headroom-Context-Lab-Chrome-v0.6.11.zip') -or !(Test-Path 'release/Headroom-Context-Lab-Windows-Companion-v0.6.11.zip')) { throw 'Release assets missing' }
       - name: Create GitHub Release
         shell: pwsh
         env:
@@ -46,7 +46,8 @@ jobs:
         run: |
           gh release view "$env:GITHUB_REF_NAME" --repo "$env:GITHUB_REPOSITORY" --json id *> $null
           if ($LASTEXITCODE -eq 0) {
-            Write-Host "Release already published. Skipping duplicate creation."
+            gh release upload "$env:GITHUB_REF_NAME" 'release/Headroom-Context-Lab-Chrome-v0.6.11.zip' 'release/Headroom-Context-Lab-Windows-Companion-v0.6.11.zip' --repo "$env:GITHUB_REPOSITORY" --clobber
+            if ($LASTEXITCODE -ne 0) { throw "Unable to attach release packages" }
           } else {
-            gh release create "$env:GITHUB_REF_NAME" 'release/Headroom-Context-Lab-Chrome-v0.6.10.zip' 'release/Headroom-Context-Lab-Windows-Companion-v0.6.10.zip' --repo "$env:GITHUB_REPOSITORY" --title 'Headroom Context Lab v0.6.10' --notes-file RELEASE_NOTES_v0.6.10.md --verify-tag
+            gh release create "$env:GITHUB_REF_NAME" 'release/Headroom-Context-Lab-Chrome-v0.6.11.zip' 'release/Headroom-Context-Lab-Windows-Companion-v0.6.11.zip' --repo "$env:GITHUB_REPOSITORY" --title 'Headroom Context Lab v0.6.11' --notes-file RELEASE_NOTES_v0.6.11.md --verify-tag
           }

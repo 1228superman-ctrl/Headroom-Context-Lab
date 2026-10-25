@@ -29,7 +29,14 @@ export default defineConfig({
         "128": "icon/128-gray.png",
       },
     },
-    permissions: ["storage", "webRequest", "alarms", "tabs"],
+    permissions: [
+      "storage",
+      "webRequest",
+      "alarms",
+      "tabs",
+      "scripting",
+      "notifications",
+    ],
     // Host access for every supported platform's page (content script) AND
     // send-request host (webRequest body read). 通义千问 serves its page from
     // www.qianwen.com but POSTs to chat2.qianwen.com — both needed.
