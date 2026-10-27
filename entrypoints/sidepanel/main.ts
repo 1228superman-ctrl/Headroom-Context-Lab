@@ -1353,6 +1353,21 @@ async function pollSummaryJob(id: string, jobId: string): Promise<void> {
         result = await callCompanion(`/jobs/${jobId}`);
       } catch (error) {
         const errorMessage = remoteError(error);
+        // A definite 404 means the helper no longer holds this job. Keep the
+        // original prompt, unlock the UI, and require another explicit click
+        // before any new (possibly billable) request.
+        if (errorMessage.includes("Summary job not found or expired")) {
+          commitHandover(id, {
+            ...current,
+            jobId: undefined,
+            status:
+              "原摘要任务已失效（本机服务重启或任务过期）。原始输入已保留，可检查后手动重新生成。",
+            sendStatus:
+              "已解除任务锁定；不会自动重新提交或消耗额度。重新生成需要再次确认。",
+            updatedAt: Date.now(),
+          });
+          return;
+        }
         // Connection might briefly drop; do not lose the accepted job id.
         if (attempt < 5) continue;
         commitHandover(id, {
@@ -1448,7 +1463,7 @@ els.handoverSendConfirm.addEventListener("click", () => {
         ...original,
         jobId: proposedJobId,
         format,
-        remote: null,
+        remote: provider,
         status: "正在提交 AI 总结任务。可切换网页，进度属于原聊天。",
         sendStatus: "任务编号已保存在浏览器临时会话中。",
         updatedAt: Date.now(),
@@ -1471,7 +1486,7 @@ els.handoverSendConfirm.addEventListener("click", () => {
         ...current,
         jobId: proposedJobId,
         format,
-        remote: null,
+        remote: provider,
         status: "AI 正在生成摘要。可切换网页，回原聊天自动显示结果。",
         sendStatus: "任务已由本机服务接收；关闭侧边栏也不会取消已提交的任务。",
         updatedAt: Date.now(),
@@ -1482,7 +1497,7 @@ els.handoverSendConfirm.addEventListener("click", () => {
         const current = handoverByChat.get(id) ?? original;
         commitHandover(id, {
           ...current,
-          remote: null,
+          remote: provider,
           jobId: proposedJobId,
           status: "任务提交状态尚不明确：" + remoteError(error),
           sendStatus: "将先根据任务编号查询是否已接收；不要重复点击生成。",
