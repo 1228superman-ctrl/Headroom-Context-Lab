@@ -24,30 +24,45 @@ jobs:
       - run: npm run test:run
       - run: node scripts/check-publication.mjs
       - run: npm run build:chrome
-      - name: Package release assets with license
+      - name: Package Chrome extension and Windows companion
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          $tag = "$env:GITHUB_REF_NAME"
+          if ($tag -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+$') { throw "Unsupported release tag: $tag" }
+          $version = $tag.Substring(1)
+          $package = Get-Content package.json -Raw | ConvertFrom-Json
+          $manifest = Get-Content '.output/chrome-mv3/manifest.json' -Raw | ConvertFrom-Json
+          if ($package.version -ne $version -or $manifest.version -ne $version) { throw "Tag, package and manifest versions differ" }
           New-Item -ItemType Directory -Path release -Force | Out-Null
           Copy-Item LICENSE .output/chrome-mv3/LICENSE.txt -Force
           Copy-Item NOTICE.md .output/chrome-mv3/NOTICE.md -Force
-          Compress-Archive -Path '.output/chrome-mv3/*' -DestinationPath 'release/Headroom-Context-Lab-Chrome-v0.6.11.zip' -CompressionLevel Optimal -Force
+          Compress-Archive -Path '.output/chrome-mv3/*' -DestinationPath "release/Headroom-Context-Lab-Chrome-$tag.zip" -CompressionLevel Optimal -Force
           New-Item -ItemType Directory -Path release/companion-stage -Force | Out-Null
           Copy-Item companion release/companion-stage/companion -Recurse -Force
           Copy-Item LICENSE release/companion-stage/LICENSE.txt -Force
           Copy-Item NOTICE.md release/companion-stage/NOTICE.md -Force
-          Compress-Archive -Path 'release/companion-stage/*' -DestinationPath 'release/Headroom-Context-Lab-Windows-Companion-v0.6.11.zip' -CompressionLevel Optimal -Force
+          Compress-Archive -Path 'release/companion-stage/*' -DestinationPath "release/Headroom-Context-Lab-Windows-Companion-$tag.zip" -CompressionLevel Optimal -Force
           Remove-Item release/companion-stage -Recurse -Force
-          if (!(Test-Path 'release/Headroom-Context-Lab-Chrome-v0.6.11.zip') -or !(Test-Path 'release/Headroom-Context-Lab-Windows-Companion-v0.6.11.zip')) { throw 'Release assets missing' }
-      - name: Create GitHub Release
+          foreach ($file in @("release/Headroom-Context-Lab-Chrome-$tag.zip", "release/Headroom-Context-Lab-Windows-Companion-$tag.zip")) {
+            if (!(Test-Path $file) -or (Get-Item $file).Length -lt 1000) { throw "Missing or incomplete release asset: $file" }
+            Get-FileHash -Algorithm SHA256 $file | Format-List | Out-String | Write-Output
+          }
+      - name: Publish release and attach ZIP archives
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view "$env:GITHUB_REF_NAME" --repo "$env:GITHUB_REPOSITORY" --json id *> $null
+          $ErrorActionPreference = 'Stop'
+          $tag = "$env:GITHUB_REF_NAME"
+          $notes = "RELEASE_NOTES_$tag.md"
+          if (!(Test-Path $notes)) { throw "Release notes missing: $notes" }
+          $chrome = "release/Headroom-Context-Lab-Chrome-$tag.zip"
+          $companion = "release/Headroom-Context-Lab-Windows-Companion-$tag.zip"
+          gh release view "$tag" --repo "$env:GITHUB_REPOSITORY" --json id *> $null
           if ($LASTEXITCODE -eq 0) {
-            gh release upload "$env:GITHUB_REF_NAME" 'release/Headroom-Context-Lab-Chrome-v0.6.11.zip' 'release/Headroom-Context-Lab-Windows-Companion-v0.6.11.zip' --repo "$env:GITHUB_REPOSITORY" --clobber
-            if ($LASTEXITCODE -ne 0) { throw "Unable to attach release packages" }
+            gh release upload "$tag" $chrome $companion --repo "$env:GITHUB_REPOSITORY" --clobber
           } else {
-            gh release create "$env:GITHUB_REF_NAME" 'release/Headroom-Context-Lab-Chrome-v0.6.11.zip' 'release/Headroom-Context-Lab-Windows-Companion-v0.6.11.zip' --repo "$env:GITHUB_REPOSITORY" --title 'Headroom Context Lab v0.6.11' --notes-file RELEASE_NOTES_v0.6.11.md --verify-tag
+            gh release create "$tag" $chrome $companion --repo "$env:GITHUB_REPOSITORY" --title "Headroom Context Lab $tag" --notes-file "$notes" --verify-tag --prerelease
           }
+          if ($LASTEXITCODE -ne 0) { throw "Release publishing failed" }
