@@ -1,5 +1,23 @@
 /** ChatGPT estimated-history reminders. This is NOT a model context budget. */
 export const CHAT_REMINDERS_KEY = "headroom:chatgpt-history-reminders:v1";
+
+/** Manually selected total context-window references from ChatGPT's 2026-10-27
+ * pricing comparison. They are NOT active-context usage or usable input budget.
+ * No account, plan, or model inference is attempted by the extension.
+ */
+export const CHATGPT_REFERENCE_PRESETS = [
+  { tokens: 27000, label: "Free · Instant（27K）" },
+  { tokens: 54000, label: "Go / Plus / Business · Instant（54K）" },
+  { tokens: 128000, label: "Pro / Enterprise · Instant（128K）" },
+  { tokens: 256000, label: "Go / Plus / Business / Enterprise · 推理（256K）" },
+  { tokens: 400000, label: "Pro · 推理（400K）" },
+] as const;
+
+export function referencePresetValue(tokens: number): string {
+  return CHATGPT_REFERENCE_PRESETS.some((preset) => preset.tokens === tokens)
+    ? String(tokens)
+    : "custom";
+}
 export const DEFAULT_CHAT_REMINDERS: ReminderConfig = {
   enabled: true,
   browserNotifications: false,

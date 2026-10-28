@@ -37,6 +37,11 @@ import {
 } from "../utils/upstash";
 import { getSettings, type Settings } from "../utils/settings";
 import {
+  describeHistoryComposition,
+  toolDominantReminder,
+  summarizeChatGptHistory,
+} from "../utils/chatgpt-history-summary";
+import {
   CHAT_REMINDERS_KEY,
   DEFAULT_CHAT_REMINDERS,
   safeReminderConfig,
@@ -315,12 +320,25 @@ async function updateChatReminders(state: UsageState): Promise<void> {
     stored[CHAT_REMINDERS_KEY] ?? DEFAULT_CHAT_REMINDERS,
   );
   const stage = reminderStage(state.totalTokens, config);
-  const badge = reminderBadge(state.totalTokens, config);
+  const summary = summarizeChatGptHistory(state);
+  const toolReminder = config.enabled
+    ? toolDominantReminder(summary, state.totalTokens, config.referenceTokens)
+    : null;
+  const badge =
+    stage > 0 && toolReminder
+      ? toolReminder.badge
+      : reminderBadge(state.totalTokens, config);
   await browser.action.setBadgeText({ text: badge }).catch(() => {});
   if (stage) {
     await browser.action
       .setBadgeBackgroundColor({
-        color: stage >= 3 ? "#ac4343" : stage === 2 ? "#9b7419" : "#547994",
+        color: toolReminder
+          ? "#64748b"
+          : stage >= 3
+            ? "#ac4343"
+            : stage === 2
+              ? "#9b7419"
+              : "#547994",
       })
       .catch(() => {});
   }
@@ -333,15 +351,24 @@ async function updateChatReminders(state: UsageState): Promise<void> {
   // across service-worker restarts or repeated history refreshes.
   await browser.storage.local.set({ [key]: stage });
   const ratio = ((state.totalTokens / config.referenceTokens) * 100).toFixed(1);
+  const composition = describeHistoryComposition(
+    summarizeChatGptHistory(state),
+  );
+  const toolHeavyStage = composition.toolHeavy && stage === 3;
   await browser.notifications
     .create("headroom-reminder-" + Date.now(), {
       type: "basic",
       iconUrl: browser.runtime.getURL("/icon/128-gray.png"),
-      title: "Headroom · " + REMINDER_TITLES[stage],
+      title: toolHeavyStage
+        ? "Headroom · 建议保存关键分析结论"
+        : "Headroom · " + REMINDER_TITLES[stage],
       message:
         "当前聊天历史累计估算约为参考量的 " +
         ratio +
-        "%。仅为历史参考，不代表实际模型上下文占用。",
+        "%。仅为历史参考，不代表实际模型上下文占用。" +
+        (toolHeavyStage
+          ? " 工具文本占比较高，不能仅据此判断必须迁移聊天。"
+          : ""),
     })
     .catch(() => {});
 }

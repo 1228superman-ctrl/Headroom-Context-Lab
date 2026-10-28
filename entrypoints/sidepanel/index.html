@@ -214,10 +214,34 @@
           >
             正在读取统计…
           </div>
+          <p id="cg-reminder-composition" class="hd-reminder-help">
+            正在拆分普通对话与工具文本…
+          </p>
+          <p id="cg-reminder-advice" class="hd-reminder-help">
+            统计结果不能代表当前模型剩余上下文。
+          </p>
+          <p id="cg-reminder-quality" class="hd-reminder-help" role="status">
+            正在核对历史明细…
+          </p>
           <label class="hd-reminder-row"
             >监控提醒
             <input id="cg-reminder-enabled" type="checkbox" checked />
           </label>
+          <label class="hd-reminder-row"
+            >参考模式（手动选择）
+            <select id="cg-reminder-preset" class="hd-handover-select">
+              <option value="custom">自定义 / 保留当前设置</option>
+            </select>
+          </label>
+          <p class="hd-reminder-help">
+            下拉选项参考
+            <a
+              href="https://chatgpt.com/pricing/"
+              target="_blank"
+              rel="noopener noreferrer"
+              >官方公布的总窗口容量</a
+            >； 不会自动识别套餐、模式或实际剩余上下文。
+          </p>
           <label class="hd-reminder-row"
             >参考历史量（Token）
             <input

@@ -1262,6 +1262,14 @@ th.hd-round-cum {
   line-height: 1.5;
   font-weight: 600;
 }
+.hd-reminder-current[data-kind="tool-heavy"] {
+  border-left: 4px solid var(--fg-muted);
+  background: var(--bg-card);
+}
+#cg-reminder-composition {
+  font-size: 11px;
+  color: var(--fg-muted);
+}
 .hd-reminder-current[data-stage="3"] {
   border-left: 4px solid #bf4b4b;
 }
@@ -1286,6 +1294,12 @@ th.hd-round-cum {
   border-radius: 6px;
   background: var(--bg);
   color: var(--fg);
+}
+#cg-reminder-preset {
+  min-width: 0;
+  width: 62%;
+  max-width: 220px;
+  font-size: 11px;
 }
 .hd-reminder-row input[type="checkbox"] {
   flex-shrink: 0;

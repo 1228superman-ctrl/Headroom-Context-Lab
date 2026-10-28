@@ -4,7 +4,12 @@ import type {
   HandoverDraftResponse,
   UsageState,
 } from "../../utils/messages";
-import { summarizeChatGptHistory } from "../../utils/chatgpt-history-summary";
+import {
+  describeHistoryComposition,
+  toolDominantReminder,
+  historyEvidenceNote,
+  summarizeChatGptHistory,
+} from "../../utils/chatgpt-history-summary";
 import {
   handoverKey,
   restorableHandover,
@@ -21,6 +26,8 @@ import {
 } from "../../utils/content-script-recovery";
 import {
   CHAT_REMINDERS_KEY,
+  CHATGPT_REFERENCE_PRESETS,
+  referencePresetValue,
   DEFAULT_CHAT_REMINDERS,
   safeReminderConfig,
   reminderStage,
@@ -149,6 +156,14 @@ const els = {
   tokensUnit: document.querySelector<HTMLElement>("#tokens-unit")!,
   chatgptSummary: document.querySelector<HTMLElement>("#chatgpt-summary")!,
   reminderCard: document.querySelector<HTMLElement>("#chatgpt-reminder-card")!,
+  reminderPreset: document.querySelector<HTMLSelectElement>(
+    "#cg-reminder-preset",
+  )!,
+  reminderQuality: document.querySelector<HTMLElement>("#cg-reminder-quality")!,
+  reminderComposition: document.querySelector<HTMLElement>(
+    "#cg-reminder-composition",
+  )!,
+  reminderAdvice: document.querySelector<HTMLElement>("#cg-reminder-advice")!,
   reminderCurrent: document.querySelector<HTMLElement>("#cg-reminder-current")!,
   reminderEnabled: document.querySelector<HTMLInputElement>(
     "#cg-reminder-enabled",
@@ -375,6 +390,24 @@ function unfreezeChatView(id: string): void {
   els.handoverPlanPrepare.disabled = busy;
   els.handoverSendConfirm.disabled = busy;
 }
+for (const preset of CHATGPT_REFERENCE_PRESETS) {
+  const option = document.createElement("option");
+  option.value = String(preset.tokens);
+  option.textContent = preset.label;
+  els.reminderPreset.append(option);
+}
+els.reminderPreset.addEventListener("change", () => {
+  if (els.reminderPreset.value !== "custom") {
+    els.reminderReference.value = els.reminderPreset.value;
+  }
+  els.reminderSettingStatus.textContent = "参考设置尚未保存";
+});
+els.reminderReference.addEventListener("input", () => {
+  els.reminderPreset.value = referencePresetValue(
+    Number(els.reminderReference.value),
+  );
+  els.reminderSettingStatus.textContent = "参考设置尚未保存";
+});
 let reminderConfig: ReminderConfig = {
   ...DEFAULT_CHAT_REMINDERS,
   stages: [...DEFAULT_CHAT_REMINDERS.stages],
@@ -385,19 +418,44 @@ function renderReminder(state: UsageState): void {
   if (!active) return;
   const stage = reminderStage(state.totalTokens, reminderConfig);
   const ratio = referenceRatio(state.totalTokens, reminderConfig);
-  els.reminderCurrent.dataset.stage = String(stage);
+  const summary = summarizeChatGptHistory(state);
+  const composition = describeHistoryComposition(summary);
+  const toolReminder = reminderConfig.enabled
+    ? toolDominantReminder(
+        summary,
+        state.totalTokens,
+        reminderConfig.referenceTokens,
+      )
+    : null;
+  els.reminderQuality.textContent = historyEvidenceNote(summary);
+  els.reminderComposition.textContent =
+    toolReminder?.details ?? composition.breakdown;
+  els.reminderAdvice.textContent = composition.advice;
+  // Tool-heavy chats display the dialogue/tool split prominently. The total
+  // history/reference ratio stays available as an explanatory secondary line.
+  els.reminderCurrent.dataset.stage = String(toolReminder ? 0 : stage);
+  els.reminderCurrent.dataset.kind = toolReminder ? "tool-heavy" : "normal";
+  const adviceTitle =
+    stage === 0
+      ? ""
+      : stage === 3 && composition.toolHeavy
+        ? "建议先保存关键分析结论"
+        : REMINDER_TITLES[stage];
   els.reminderCurrent.textContent = !reminderConfig.enabled
     ? "历史估算提醒已关闭"
-    : stage === 0
-      ? `历史累计 / 自定义参考量：${ratio.toFixed(1)}% · 未达到关注阈值`
-      : ratio > 100
-        ? `历史累计 / 自定义参考量：${ratio.toFixed(1)}% · 已超过参考量 · ${REMINDER_TITLES[stage]}`
-        : `历史累计 / 自定义参考量：${ratio.toFixed(1)}% · ${REMINDER_TITLES[stage]}`;
+    : toolReminder
+      ? toolReminder.headline
+      : stage === 0
+        ? `历史累计 / 手动参考量：${ratio.toFixed(1)}% · 未达到关注阈值`
+        : ratio > 100
+          ? `历史累计 / 手动参考量：${ratio.toFixed(1)}% · 已超过参考量 · ${adviceTitle}`
+          : `历史累计 / 手动参考量：${ratio.toFixed(1)}% · ${adviceTitle}`;
 }
 function adoptReminderConfig(value: ReminderConfig): void {
   reminderConfig = value;
   els.reminderEnabled.checked = value.enabled;
   els.reminderReference.value = String(value.referenceTokens);
+  els.reminderPreset.value = referencePresetValue(value.referenceTokens);
   els.reminderOne.value = String(value.stages[0]);
   els.reminderTwo.value = String(value.stages[1]);
   els.reminderThree.value = String(value.stages[2]);

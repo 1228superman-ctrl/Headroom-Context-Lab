@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   DEFAULT_CHAT_REMINDERS,
+  CHATGPT_REFERENCE_PRESETS,
+  referencePresetValue,
   reminderBadge,
   safeReminderConfig,
   reminderStage,
@@ -10,6 +12,17 @@ import {
 } from "./chatgpt-reminders";
 describe("estimate-only chat monitoring", () => {
   const cfg = DEFAULT_CHAT_REMINDERS;
+  it("offers manual official total-window presets without changing legacy saved settings", () => {
+    expect(CHATGPT_REFERENCE_PRESETS.map((item) => item.tokens)).toEqual([
+      27000, 54000, 128000, 256000, 400000,
+    ]);
+    expect(referencePresetValue(256000)).toBe("256000");
+    expect(referencePresetValue(200000)).toBe("custom");
+    expect(DEFAULT_CHAT_REMINDERS.referenceTokens).toBe(200000);
+    expect(
+      safeReminderConfig({ referenceTokens: 200000 }).referenceTokens,
+    ).toBe(200000);
+  });
   it("uses the user's historical-reference, not effective model context", () => {
     expect(reminderStage(139999, cfg)).toBe(0);
     expect(reminderStage(140000, cfg)).toBe(1);
